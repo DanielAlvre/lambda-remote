@@ -1,0 +1,111 @@
+@startuml
+title Flujo de Orquestación SSM Downloader\n(EC2 ID Fijo: i-0150b0df086b5f6a2)
+
+skinparam sequenceResponseArrowColor #1E90FF
+skinparam responseMessageBelowArrow true
+skinparam style strict
+
+actor User
+participant API_Gateway as "API Gateway"
+box "AWS Lambda (Orquestador)" #LightBlue
+    participant LAMBDA_APP as "Lambda (app.js)\nRouter"
+    participant HANDLER as "<<Node.js Handler>>"
+end box
+participant SSM as "AWS SSM"
+participant EC2 as "EC2 (Agent)\n<<i-0150b0df086b5f6a2>>"
+database S3_Source as "S3 Origen\n(/csv/)"
+database S3_Backup as "S3 Backup\n(/csv/backup/)"
+
+' =========================================================================
+' FLUJO 1: DESCARGA A EC2 Y BACKUP EN S3 (download-start)
+' =========================================================================
+group Flujo 1: Descarga y Backup (GET /download-start?dataDir=...)
+    User -> API_Gateway: 1. Petición Descarga (dataDir)
+    activate API_Gateway
+
+    API_Gateway -> LAMBDA_APP: 2. Invocar Lambda
+    activate LAMBDA_APP
+
+    LAMBDA_APP -> HANDLER: 3. startDownloadHandler(dataDir)
+    activate HANDLER
+
+    HANDLER -> HANDLER: 4. **Usa CONSTANTE:** EC2_INSTANCE_ID = 'i-0150b0df086b5f6a2'
+
+    note right of HANDLER #yellow
+        Comandos Shell a enviar a SSM:
+        1. mkdir -p /local/{DIR}/
+        2. aws s3 sync S3_Source/{DIR}/ -> EC2_Local/{DIR}/
+        3. aws s3 mv S3_Source/{DIR}/ -> S3_Backup/{DIR}/
+    end note
+
+    HANDLER -> SSM: 5. **SSM: sendCommand** (InstanceIds=[EC2_INSTANCE_ID])
+    deactivate HANDLER
+
+    SSM --> LAMBDA_APP: 6. CommandId recibido
+
+    LAMBDA_APP --> API_Gateway: 7. HTTP 202 Accepted
+    deactivate LAMBDA_APP
+
+    API_Gateway --> User: 8. HTTP 202 Accepted
+    deactivate API_Gateway
+
+    ' -- Ejecución Asíncrona en EC2 --
+    SSM -> EC2: 9. Ejecutar Comandos Shell
+    activate EC2
+
+    EC2 -> S3_Source: 10. `aws s3 sync` (Descarga a Local)
+    S3_Source --> EC2: Archivos a /var/data/.../{DIR}/
+
+    EC2 -> S3_Source: 11. `aws s3 mv` (Backup en S3)
+    EC2 -> S3_Backup
+    S3_Source -> S3_Backup: Los archivos originales se MUEVEN
+
+    EC2 --> SSM: 12. Estado del Comando (Exitoso)
+    deactivate EC2
+end
+
+== Fin del Proceso de Descarga ==
+
+' =========================================================================
+' FLUJO 2: ROLLBACK EN S3 (rollback)
+' =========================================================================
+group Flujo 2: Rollback (GET /rollback?dataDir=...)
+    User -> API_Gateway: 13. Petición Rollback (dataDir)
+    activate API_Gateway
+
+    API_Gateway -> LAMBDA_APP: 14. Invocar Función
+    activate LAMBDA_APP
+
+    LAMBDA_APP -> HANDLER: 15. startRollbackHandler(dataDir)
+    activate HANDLER
+
+    HANDLER -> HANDLER: 16. **Usa CONSTANTE:** EC2_INSTANCE_ID = 'i-0150b0df086b5f6a2'
+
+    note right of HANDLER #lightgreen
+        Comando Shell a enviar a SSM:
+        aws s3 mv S3_Backup/{DIR}/ -> S3_Source/{DIR}/
+    end note
+
+    HANDLER -> SSM: 17. **SSM: sendCommand** (InstanceIds=[EC2_INSTANCE_ID])
+    deactivate HANDLER
+
+    SSM --> LAMBDA_APP: 18. CommandId recibido
+
+    LAMBDA_APP --> API_Gateway: 19. HTTP 202 Accepted
+    deactivate LAMBDA_APP
+
+    API_Gateway --> User: 20. HTTP 202 Accepted
+    deactivate API_Gateway
+
+    ' -- Ejecución Asíncrona en EC2 --
+    SSM -> EC2: 21. Ejecutar Comando Rollback
+    activate EC2
+
+    EC2 -> S3_Backup: 22. `aws s3 mv` (Restauración en S3)
+    EC2 -> S3_Source
+    S3_Backup -> S3_Source: Los archivos se MUEVEN de vuelta
+
+    EC2 --> SSM: 23. Estado del Comando (Exitoso)
+    deactivate EC2
+end
+@enduml

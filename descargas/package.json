@@ -1,0 +1,22 @@
+{
+  "name": "ssm-orchestrator-downloader",
+  "version": "1.0.0",
+  "description": "Lambda para iniciar descarga S3 a EC2 via SSM Run Command.",
+  "main": "app.js",
+  "repository": "https://github.com/awslabs/aws-sam-cli/tree/develop/samcli/local/init/templates/cookiecutter-aws-sam-hello-nodejs",
+  "author": "SAM CLI",
+  "license": "MIT",
+  "dependencies": {
+    "aws-sdk": "^2.1691.0",
+    "winston": "^3.17.0",
+    "jsonwebtoken": "^9.0.2",
+    "busboy": "^1.6.0"
+  },
+  "scripts": {
+    "test": "mocha tests/unit/"
+  },
+  "devDependencies": {
+    "chai": "^4.2.0",
+    "mocha": "^6.1.4"
+  }
+}

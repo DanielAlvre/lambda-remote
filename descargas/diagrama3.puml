@@ -1,0 +1,71 @@
+@startuml
+title Flujo de Orquestación SSM Unificado
+skinparam style strict
+skinparam activityFontSize 14
+skinparam activityArrowFontColor black
+skinparam defaultFontName Arial
+skinparam shadowing false
+
+start
+:Solicitud HTTP (GET);
+
+:API Gateway invoca Lambda;
+
+note right
+  **app.js (Router Principal)**
+  Obtiene path y dataDir.
+end note
+
+if (Path es /download-start) then (Sí)
+
+  :Llamar a **startDownloadHandler**;
+
+  note right
+    **HANDLER: Lógica Descarga y Backup**
+    Usa CONSTANTE: EC2_INSTANCE_ID
+    Revisa si falta dataDir.
+  end note
+
+  :Construir Comandos Shell para EC2;
+
+  fork
+    :Comando de Descarga:
+    1. mkdir /local/{DIR} 2. aws s3 sync S3_Source -> EC2_Local;
+  fork again
+    :Comando de Backup:
+    aws s3 mv S3_Source -> S3_Backup;
+  end fork
+
+  :Enviar Comandos a SSM\n(ssm:sendCommand) con InstanceId Fija;
+
+else (Path es /rollback)
+
+  :Llamar a **startRollbackHandler**;
+
+  note right
+    **HANDLER: Lógica Rollback**
+    Usa CONSTANTE: EC2_INSTANCE_ID
+    Revisa si falta dataDir.
+  end note
+
+  :Construir Comando Shell para EC2;
+
+  :Comando de Restauración:
+  aws s3 mv S3_Backup -> S3_Source;
+
+  :Enviar Comando a SSM\n(ssm:sendCommand) con InstanceId Fija;
+
+
+  :Responder:
+  HTTP 404 Not Found;
+  stop
+endif
+
+:Obtener CommandId de SSM;
+
+:Responder al Usuario:
+HTTP 202 Accepted (CommandId);
+
+stop
+
+@enduml

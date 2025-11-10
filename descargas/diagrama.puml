@@ -1,0 +1,62 @@
+@startuml
+title Flujo de Orquestación SSM Downloader
+
+skinparam handwritten true
+skinparam style strict
+
+actor Cliente as client
+
+box "AWS Cloud (Microservicio Orchestrator)"
+  participant "API Gateway\n(/download-start)" as api_download
+  participant "API Gateway\n(/rollback)" as api_rollback
+  collections "Lambda Function\n(app.js - Router)" as lambda_app
+  collections "Handler\n(downloadHandler.js)" as lambda_dl
+  collections "Handler\n(rollbackHandler.js)" as lambda_rb
+end box
+
+database "S3 Bucket\n(proyecto-lsm-lengua-senas)" as s3
+entity "AWS Systems Manager (SSM)" as ssm
+
+
+group Proceso 1: Descarga S3 y Backup Local (GET /download-start)
+  client -> api_download : 1. Petición (instanceId, dataDir)
+  api_download -> lambda_app : 2. Invocar Lambda
+  lambda_app -> lambda_dl : 3. Llamada: startDownloadHandler(event)
+  lambda_dl -> lambda_dl : 4. **Construir Comando Shell**\n- Usa rutas fijas (S3_BASE, EC2_BASE)\n- Valida instanceId/dataDir (400)
+  lambda_dl -> ssm : 5. **SSM:SendCommand** (asíncrono)
+  ssm --> lambda_dl : 6. CommandId recibido
+  lambda_dl -> lambda_app : 7. Retorna CommandId y Rutas
+  lambda_app --> client : 8. Respuesta **202 Accepted**
+
+  note right of ssm #lightblue
+    Ejecución Asíncrona en EC2:
+    Descarga y Mueve a /backup/
+  end note
+  ssm -> ec2 : 9. Ejecutar Comando Shell
+  ec2 -> ec2 : 10. `mkdir` /ruta/dataDir/ & /backup/
+  ec2 -> s3 : 11. `aws s3 sync S3_BASE/dataDir`
+  s3 --> ec2 : 12. Archivos descargados a /ruta/dataDir/
+  ec2 -> ec2 : 13. **`find...mv`** (Mover CSV a /backup/)
+end
+
+== Monitoreo Opcional / Rollback ==
+
+group Proceso 2: Rollback (GET /rollback)
+  client -> api_rollback : 14. Petición (instanceId, dataDir)
+  api_rollback -> lambda_app : 15. Invocar Lambda
+  lambda_app -> lambda_rb : 16. Llamada: startRollbackHandler(event)
+  lambda_rb -> lambda_rb : 17. **Construir Comando Shell**\n- Usa rutas fijas (EC2_BASE)\n- Valida instanceId/dataDir (400)
+  lambda_rb -> ssm : 18. **SSM:SendCommand** (asíncrono)
+  ssm --> lambda_rb : 19. CommandId recibido
+  lambda_rb -> lambda_app : 20. Retorna CommandId y Rutas
+  lambda_app --> client : 21. Respuesta **202 Accepted**
+
+  note right of ssm #lightgreen
+    Ejecución Asíncrona en EC2:
+    Restauración de archivos
+  end note
+  ssm -> ec2 : 22. Ejecutar Comando Rollback
+  ec2 -> ec2 : 23. **`find...mv`** (Mover de /backup/ a /principal/)
+  ec2 -> ec2 : 24. `rmdir /backup/` (limpieza)
+end
+@enduml
