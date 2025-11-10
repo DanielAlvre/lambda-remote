@@ -1,0 +1,57 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  SSM Orchestrator Downloader
+  
+  SAM Template para iniciar descargas masivas de S3 a EC2 mediante SSM Run Command.
+
+Globals:
+  Function:
+    Timeout: 30 # Tiempo suficiente para que SSM reciba el comando
+
+Resources:
+  # 1. API Gateway dedicado para este stack
+  SSMOrchestratorApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Cors:
+        AllowMethods: "'GET,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+      TracingEnabled: true
+
+  # 2. FUNCIÓN PRINCIPAL: Orquestador S3 a EC2 via SSM
+  FileDownloaderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: descargas/ # Verifica que la carpeta que contiene app.js se llama 'descarga'
+      Handler: app.handler
+      Runtime: nodejs20.x
+      Architectures:
+        - x86_64
+      # IMPORTANTE: Asume que el rol 'lambda-execution-role' tiene permisos ssm:SendCommand
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/lambda-execution-role"
+      Events:
+        # RUTA 1: Iniciar Descarga y Backup (GET /download-start)
+        StartDownload:
+          Type: Api
+          Properties:
+            RestApiId: !Ref SSMOrchestratorApi
+            Path: /download-start
+            Method: get
+
+        # RUTA 2: Iniciar Rollback (GET /rollback) - Nuevo endpoint para restaurar archivos
+        StartRollback:
+          Type: Api
+          Properties:
+            RestApiId: !Ref SSMOrchestratorApi
+            Path: /rollback
+            Method: get
+
+Outputs:
+  SSMOrchestratorApiEndpoint:
+    Description: "URL del endpoint de API Gateway para orquestación SSM"
+    Value: !Sub "https://${SSMOrchestratorApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiEndpoint"
