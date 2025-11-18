@@ -92,7 +92,13 @@ async function startTrainingHandler(event, context) {
         DocumentName: 'AWS-RunShellScript',
         InstanceIds: [EC2_INSTANCE_ID],
         Parameters: { commands: [COMMAND_TO_EXECUTE] },
-        TimeoutSeconds: 3600 // 1 hora
+        TimeoutSeconds: 3600, // 1 hora
+
+        // 💥 NUEVO BLOQUE PARA LOGS EN CLOUDWATCH 💥
+        CloudWatchOutputConfig: {
+            CloudWatchLogGroupName: "/ssm/training-jobs", // Elige un nombre para tu grupo de logs
+            CloudWatchOutputEnabled: true
+        }
     };
 
     const commandResult = await ssm.sendCommand(params).promise();
