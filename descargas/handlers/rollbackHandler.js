@@ -63,9 +63,13 @@ const startRollbackHandler = async (event) => {
 
     const params = {
         DocumentName: 'AWS-RunShellScript',
-        InstanceIds: [EC2_INSTANCE_ID], // Usa la constante fija
+        InstanceIds: [EC2_INSTANCE_ID],
         Parameters: { commands: [finalCommand] },
-        TimeoutSeconds: 60
+        TimeoutSeconds: 60,
+        CloudWatchOutputConfig: { // <-- Agregar este bloque
+            CloudWatchLogGroupName: "/ssm/training-jobs",
+            CloudWatchOutputEnabled: true
+        }
     };
 
     info(`[S3-ROLLBACK] Enviando SSM a ${EC2_INSTANCE_ID}. Restaurando: ${words.join(', ')}`);
