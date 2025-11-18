@@ -5,10 +5,10 @@ const s3 = new AWS.S3(); // Inicializar el cliente S3 para listar
 
 // --- CONSTANTES DE CONFIGURACIÓN --
 const S3_BUCKET_NAME = 'proyecto-lsm-lengua-senas';
-const S3_BASE_URL = 's3://' + S3_BUCKET_NAME + '/csv/'; // s3://proyecto-lsm-lengua-senas/csv/
-const S3_BACKUP_PREFIX = 'backup/'; // Prefijo para la carpeta de backup
+const S3_SOURCE_BASE_URL = 's3://' + S3_BUCKET_NAME + '/csv/'; // Destino: s3://proyecto-lsm-lengua-senas/csv/
+const S3_BACKUP_BASE_URL = 's3://' + S3_BUCKET_NAME + '/backup/'; // Origen: s3://proyecto-lsm-lengua-senas/backup/
 // INSTANCIA EC2 OBJETIVO FIJA
-const EC2_INSTANCE_ID = 'i-0150b0df086b5f6a2'; // ID Fijo de tu servidor EC2
+const EC2_INSTANCE_ID = 'i-0ddf9422fa1820c42'; // ID Fijo de tu servidor EC2
 // ------------------------------------
 
 
@@ -23,7 +23,7 @@ const startRollbackHandler = async (event) => {
     // 1. DISCOVER: Obtener la lista de carpetas de palabras en la carpeta de backup
     const listParams = {
         Bucket: S3_BUCKET_NAME,
-        Prefix: S3_BASE_URL.replace(`s3://${S3_BUCKET_NAME}/`, '') + S3_BACKUP_PREFIX, // "csv/backup/"
+        Prefix: S3_BACKUP_BASE_URL.replace(`s3://${S3_BUCKET_NAME}/`, ''), // "backup/"
         Delimiter: '/'
     };
 
@@ -47,8 +47,8 @@ const startRollbackHandler = async (event) => {
     // 2. ORCHESTRATE: Construir el comando SSM combinado
     const commands = [];
     words.forEach(word => {
-        const s3SourcePath = `${S3_BASE_URL}${word}/`;       // Destino: s3://.../csv/agua/
-        const s3BackupPath = `${S3_BASE_URL}${S3_BACKUP_PREFIX}${word}/`; // Origen: s3://.../csv/backup/agua/
+        const s3SourcePath = `${S3_SOURCE_BASE_URL}${word}/`;       // Destino: s3://.../csv/agua/
+        const s3BackupPath = `${S3_BACKUP_BASE_URL}${word}/`; // Origen: s3://.../backup/agua/
 
         // Comando para una palabra: Mover archivos DESDE S3 Backup HACIA S3 Source
         const singleWordCommand = [

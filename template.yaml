@@ -21,16 +21,17 @@ Resources:
         AllowOrigin: "'*'"
       TracingEnabled: true
 
-  # 2. FUNCIÓN PRINCIPAL: Orquestador S3 a EC2 via SSM
+  # 2. FUNCIÓN PRINCIPAL: Orquestador S3 a EC2 via SSM (y ahora S3 a S3)
   FileDownloaderFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: descargas/ # Verifica que la carpeta que contiene app.js se llama 'descarga'
-      Handler: app.handler
+      CodeUri: descargas/ # Verifica que la carpeta que contiene app.js se llama 'descargas'
+      Handler: app.handler # Asume que 'app.js' es el archivo router que distribuye a los handlers
       Runtime: nodejs20.x
       Architectures:
         - x86_64
-      # IMPORTANTE: Asume que el rol 'lambda-execution-role' tiene permisos ssm:SendCommand
+      # IMPORTANTE: El rol debe tener permisos ssm:SendCommand (para el download)
+      # y s3:ListBucket, s3:CopyObject, s3:DeleteObject (para el nuevo rollback-s3)
       Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/lambda-execution-role"
       Events:
         # RUTA 1: Iniciar Descarga y Backup (GET /download-start)
@@ -41,17 +42,23 @@ Resources:
             Path: /download-start
             Method: get
 
-        # RUTA 2: Iniciar Rollback (GET /rollback) - Nuevo endpoint para restaurar archivos
-        StartRollback:
+        # RUTA 2: Rollback CLÁSICO (SSM/EC2) - Endpoint Renombrado
+        StartRollbackSSM:
           Type: Api
           Properties:
             RestApiId: !Ref SSMOrchestratorApi
-            Path: /rollback
+            Path: /rollback-ssm
+            Method: get
+
+        # 🆕 RUTA 3: INICIAR ENTRENAMIENTO (Encender EC2 + run_training.py)
+        StartTraining:
+          Type: Api
+          Properties:
+            RestApiId: !Ref SSMOrchestratorApi
+            Path: /start-training
             Method: get
 
 Outputs:
   SSMOrchestratorApiEndpoint:
     Description: "URL del endpoint de API Gateway para orquestación SSM"
     Value: !Sub "https://${SSMOrchestratorApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
-    Export:
-      Name: !Sub "${AWS::StackName}-ApiEndpoint"
