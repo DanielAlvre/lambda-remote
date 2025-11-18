@@ -58,6 +58,13 @@ Resources:
             Path: /start-training
             Method: get
 
+  # 3. CloudWatch Logs Group para capturar la salida de SSM de entrenamiento
+  SSMTrainingLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ssm/training-jobs
+      RetentionInDays: 30
+
 Outputs:
   SSMOrchestratorApiEndpoint:
     Description: "URL del endpoint de API Gateway para orquestación SSM"
