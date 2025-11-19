@@ -118,7 +118,7 @@ const startRollbackHandler = async (event) => {
         // Comando para una palabra: Mover archivos DESDE S3 Backup HACIA S3 Source
         // Se usa --metadata-directive COPY para mantener el timestamp de modificación, lo cual es útil.
         const singleWordCommand = [
-            `aws s3 mv ${s3BackupPath} ${s3SourcePath} --recursive --exclude \"*\" --include \"*.csv\" --metadata-directive COPY`
+            `aws s3 mv '${s3BackupPath}' '${s3SourcePath}' --recursive --exclude \"*\" --include \"*.csv\" --metadata-directive COPY`
         ].join(' && ');
 
         commands.push(singleWordCommand);
