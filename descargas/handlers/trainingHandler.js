@@ -12,7 +12,7 @@ const EC2_INSTANCE_ID = 'i-0ddf9422fa1820c42'; // ID Fijo de tu servidor EC2
 // Ruta donde se encuentra el script run_training.py
 const EC2_TRAINING_PATH = '/home/ubuntu/entrenador/';
 // Comando final a ejecutar
-const COMMAND_TO_EXECUTE = `cd ${EC2_TRAINING_PATH} && python3 run_training.py; sudo shutdown -h now`
+const COMMAND_TO_EXECUTE = `cd ${EC2_TRAINING_PATH} && timeout 2h python3 run_training.py; sudo shutdown -h now`
 // ------------------------------------
 
 /**
