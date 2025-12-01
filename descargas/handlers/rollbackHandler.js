@@ -129,7 +129,7 @@ const startRollbackHandler = async (event) => {
     const shutdownCommand = `sudo shutdown -h now`;
 
     // El comando final ejecuta los movimientos de S3, y si son exitosos (&&), apaga la máquina
-    const finalCommand = `${rollbackCommands} && ${shutdownCommand}`; // <-- Apagado añadido aquí
+    const finalCommand = `${rollbackCommands}`; // <-- Apagado añadido aquí
 
     const params = {
         DocumentName: 'AWS-RunShellScript',

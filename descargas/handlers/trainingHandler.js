@@ -21,6 +21,9 @@ const COMMANDS = [
     'cat <<\'EOSUB\' > /tmp/train_as_ubuntu.sh',
     '#!/usr/bin/env bash',
     'set -euo pipefail',
+    '# Redirigir toda la salida a un log persistente para monitoreo por SSH',
+    'exec >> /home/ubuntu/train.log 2>&1',
+    'echo "[TRAIN] ===== Inicio $(date -Iseconds) ====="',
     'cd /home/ubuntu/entrenador',
     // Evitar /etc/profile (byobu puede fallar con nounset). Cargar perfiles de usuario con protección.
     'if [ -f ~/.profile ]; then set +u; source ~/.profile || true; set -u; fi',
@@ -39,20 +42,76 @@ const COMMANDS = [
     'import site; print(site.getsitepackages()[0])',
     'PY',
     ')',
+    '# usersite del python del sistema para capturar ~/.local si hubiera paquetes nvidia instalados allí',
+    'LOCAL_SITE=$(python3 - <<\'PY\'',
+    'import site; print(site.getusersitepackages())',
+    'PY',
+    ')',
     '# Visibilidad y carga de librerías',
     'export CUDA_VISIBLE_DEVICES=0',
     'export TF_FORCE_GPU_ALLOW_GROWTH=true',
     // Aumentar batch y habilitar mixed precision para aprovechar GPU
     'export BATCH_SIZE=${BATCH_SIZE:-512}',
     'export MIXED_PRECISION=${MIXED_PRECISION:-1}',
-    'export LD_LIBRARY_PATH="$VENV_SITE/nvidia/cudnn/lib:$VENV_SITE/nvidia/cublas/lib:$VENV_SITE/nvidia/cuda_runtime/lib:$VENV_SITE/nvidia/cufft/lib:$VENV_SITE/nvidia/curand/lib:$VENV_SITE/nvidia/cusolver/lib:$VENV_SITE/nvidia/cusparse/lib:$VENV_SITE/nvidia/nccl/lib:/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:/usr/local/cuda-12.2/lib64:/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}"',
+    'export GPU_WARMUP=${GPU_WARMUP:-1}',
+    'export GPU_OPTIMIZED=${GPU_OPTIMIZED:-1}',
+    'export LOG_DEVICE_PLACEMENT=${LOG_DEVICE_PLACEMENT:-0}',
+    'export LD_LIBRARY_PATH="$VENV_SITE/nvidia/cudnn/lib:$VENV_SITE/nvidia/cublas/lib:$VENV_SITE/nvidia/cuda_runtime/lib:$VENV_SITE/nvidia/cufft/lib:$VENV_SITE/nvidia/curand/lib:$VENV_SITE/nvidia/cusolver/lib:$VENV_SITE/nvidia/cusparse/lib:$VENV_SITE/nvidia/nccl/lib:$VENV_SITE/nvidia/nvjitlink/lib:$LOCAL_SITE/nvidia/cudnn/lib:$LOCAL_SITE/nvidia/cublas/lib:$LOCAL_SITE/nvidia/cuda_runtime/lib:$LOCAL_SITE/nvidia/cufft/lib:$LOCAL_SITE/nvidia/curand/lib:$LOCAL_SITE/nvidia/cusolver/lib:$LOCAL_SITE/nvidia/cusparse/lib:$LOCAL_SITE/nvidia/nccl/lib:$LOCAL_SITE/nvidia/nvjitlink/lib:/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:/usr/local/cuda-12.2/lib64:/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}"',
+    'id',
+    'ls -l /dev/nvidia* || true',
     'echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"',
-    'echo "ENV: BATCH_SIZE=$BATCH_SIZE MIXED_PRECISION=$MIXED_PRECISION"',
+    'echo "ENV: BATCH_SIZE=$BATCH_SIZE MIXED_PRECISION=$MIXED_PRECISION GPU_WARMUP=$GPU_WARMUP GPU_OPTIMIZED=$GPU_OPTIMIZED CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"',
+    'echo "=== DIAG4: NCCL symlink (si falta libnccl.so) ==="',
+    'for BASE in "$VENV_SITE/nvidia/nccl/lib" "$LOCAL_SITE/nvidia/nccl/lib"; do',
+    '  if [ -d "$BASE" ]; then',
+    '    if [ ! -f "$BASE/libnccl.so" ] && [ -f "$BASE/libnccl.so.2" ]; then',
+    '      echo "Creando symlink $BASE/libnccl.so -> libnccl.so.2"',
+    '      ln -sf "$BASE/libnccl.so.2" "$BASE/libnccl.so" || true',
+    '    fi',
+    '  fi',
+    'done',
+    'echo "=== DIAG4: Listado de librerías NVIDIA en venv/system ==="',
+    'echo "[venv] $VENV_SITE/nvidia:"',
+    'ls -al "$VENV_SITE/nvidia" || true',
+    'find "$VENV_SITE/nvidia" -maxdepth 2 -type f -name "*.so*" | head -n 100 || true',
+    'echo "[local] $LOCAL_SITE/nvidia:"',
+    'ls -al "$LOCAL_SITE/nvidia" || true',
+    'find "$LOCAL_SITE/nvidia" -maxdepth 2 -type f -name "*.so*" | head -n 100 || true',
+    'echo "=== DIAG4: ctypes.CDLL para libs críticas ==="',
+    '$PY_BIN - <<\'PY\'',
+    'import ctypes, sys',
+    'libs=["libcuda.so.1","libnvidia-ml.so.1","libcudart.so.12","libcublas.so.12","libcudnn.so.9","libcusolver.so.11","libcusparse.so.12","libcurand.so.10","libcufft.so.11","libnvJitLink.so.12","libnccl.so","libnccl.so.2"]',
+    'for L in libs:',
+    '    try:',
+    '        ctypes.CDLL(L)',
+    '        print(L, "OK")',
+    '    except OSError as e:',
+    '        print(L, "ERR:", e)',
+    'PY',
+    'echo "=== DIAG4: ldd de _pywrap_tensorflow_internal.so ==="',
+    'TF_SO=$($PY_BIN - <<\'PY\'',
+    'import glob, pathlib, tensorflow as tf',
+    'import tensorflow.python as tpp',
+    'prefix=pathlib.Path(tpp.__file__).parent',
+    'cands=sorted(glob.glob(str(prefix/"**/_pywrap_tensorflow_internal*.so"), recursive=True))',
+    'print(cands[0] if cands else "")',
+    'PY',
+    ')',
+    'if [ -n "$TF_SO" ] && [ -f "$TF_SO" ]; then echo "ldd $TF_SO"; ldd "$TF_SO" || true; else echo "_pywrap_tensorflow_internal.so no encontrado"; fi',
+    'echo "=== DIAG4: ldconfig -p extracto (cuda/cuDNN/cuBLAS/etc.) ==="',
+    'ldconfig -p | egrep -i "cudnn|cublas|cudart|cusolver|cusparse|curand|cufft|nccl|cuda" || true',
     'echo "=== Verificación TF/GPU previa al entrenamiento ==="',
     '$PY_BIN - <<\'PY\'',
     'import tensorflow as tf',
     'print("TF:", tf.__version__)',
     'print("Built with CUDA:", tf.test.is_built_with_cuda())',
+    'print("Physical GPUs:", tf.config.list_physical_devices("GPU"))',
+    'print("Logical GPUs:", tf.config.list_logical_devices("GPU"))',
+    'PY',
+    'echo "=== Verificación secundaria con python3 del sistema ==="',
+    'python3 - <<\'PY\'',
+    'import os, tensorflow as tf',
+    'print("sys python:", tf.__version__, os.environ.get("CUDA_VISIBLE_DEVICES"))',
     'print("Physical GPUs:", tf.config.list_physical_devices("GPU"))',
     'print("Logical GPUs:", tf.config.list_logical_devices("GPU"))',
     'PY',
@@ -65,11 +124,46 @@ const COMMANDS = [
     'EOSUB',
     'chmod +x /tmp/train_as_ubuntu.sh',
     'EXIT_CODE=0',
-    'sudo -iu ubuntu bash -lc "/tmp/train_as_ubuntu.sh" || EXIT_CODE=$? || true',
+    '# Ejecutar fuera del cgroup del agente SSM si es posible (systemd-run). Fallback a ejecución directa.',
+    'if command -v systemd-run >/dev/null 2>&1; then',
+    '  UNIT_NAME="training-job-$(date +%s)"',
+    '  echo "Ejecutando con systemd-run como servicio transitorio: $UNIT_NAME"',
+    '  sudo /bin/systemd-run \
+        --unit="$UNIT_NAME" \
+        --description="TensorFlow GPU Training" \
+        --uid=ubuntu \
+        --setenv=CUDA_VISIBLE_DEVICES=0 \
+        --setenv=LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}" \
+        --property=DevicePolicy=closed \
+        --property=DeviceAllow="char-major:195 rwm" \
+        --property=DeviceAllow="char-major:235 rwm" \
+        --property=DeviceAllow="char-major:236 rwm" \
+        --property=DeviceAllow="char-major:241 rwm" \
+        --property=DeviceAllow="/dev/nvidiactl rwm" \
+        --property=DeviceAllow="/dev/nvidia0 rwm" \
+        --property=DeviceAllow="/dev/nvidia-modeset rwm" \
+        --property=DeviceAllow="/dev/nvidia-uvm rwm" \
+        --property=DeviceAllow="/dev/nvidia-uvm-tools rwm" \
+        --property=PrivateDevices=no \
+        /bin/bash -lc "/tmp/train_as_ubuntu.sh" || EXIT_CODE=$? || true',
+    '  echo "Entrenamiento lanzado en background como unidad $UNIT_NAME"',
+    '  echo "Logs en: /home/ubuntu/train.log (use: tail -f /home/ubuntu/train.log)"',
+    '  echo "Puedes observar GPU con: watch -n1 nvidia-smi"',
+    '  echo "Mostrando primeras líneas del log por 90s para diagnóstico en CloudWatch..."',
+    '  # Esperar a que el log aparezca (hasta 30s) y luego hacer tail -f durante 60s',
+    '  sudo -iu ubuntu bash -lc "for i in {1..30}; do [ -f /home/ubuntu/train.log ] && break; sleep 1; done; tail -n 200 -f /home/ubuntu/train.log" &',
+    '  TAIL_PID=$!',
+    '  sleep 90 || true',
+    '  kill $TAIL_PID >/dev/null 2>&1 || true',
+    '  # No esperamos a que termine; devolvemos control a SSM',
+    'else',
+    '  echo "systemd-run no disponible. Ejecutando directo (puede heredar cgroup del agente SSM)"',
+    '  sudo -iu ubuntu bash -lc "/tmp/train_as_ubuntu.sh" || EXIT_CODE=$? || true',
+    'fi',
     'EXIT_CODE=${EXIT_CODE:-0}',
     'echo "=== Finalizado con código: $EXIT_CODE ==="',
     '# Opcional: apagar instancia',
-    'sudo shutdown -h now'
+    '# sudo shutdown -h now'
 ];
 /**
  * Espera un número de milisegundos.
