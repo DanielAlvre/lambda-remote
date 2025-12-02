@@ -52,21 +52,21 @@ const COMMANDS = [
     '# Visibilidad y carga de librerías',
     'export CUDA_VISIBLE_DEVICES=0',
     'export TF_FORCE_GPU_ALLOW_GROWTH=true',
-    // Defaults orientados a FIDELIDAD + mejor separación de clases
-    // Ajustables por ENV externos; estos son solo valores por defecto razonables
-    'export BATCH_SIZE=${BATCH_SIZE:-128}',
+    // Defaults orientados a FIDELIDAD (masking activado y batch moderado)
+    'export BATCH_SIZE=${BATCH_SIZE:-64}',
     'export MIXED_PRECISION=${MIXED_PRECISION:-0}',
     'export GPU_WARMUP=${GPU_WARMUP:-0}',
     'export GPU_OPTIMIZED=${GPU_OPTIMIZED:-0}',
     // Arquitectura por defecto (se puede sobreescribir por ENV)
-    'export LSTM_UNITS=${LSTM_UNITS:-160}',
-    'export LSTM_LAYERS=${LSTM_LAYERS:-2}',
+    'export LSTM_UNITS=${LSTM_UNITS:-128}',
+    'export LSTM_LAYERS=${LSTM_LAYERS:-1}',
     'export DENSE_UNITS=${DENSE_UNITS:-256}',
-    'export DROPOUT_RNN=${DROPOUT_RNN:-0.28}',
+    'export DROPOUT_RNN=${DROPOUT_RNN:-0.3}',
     'export DROPOUT_DENSE=${DROPOUT_DENSE:-0.4}',
     'export LOG_DEVICE_PLACEMENT=${LOG_DEVICE_PLACEMENT:-0}',
-    // Conversión TFLite de alta fidelidad por defecto
-    'export TFLITE_CONVERT_OFFICIAL=${TFLITE_CONVERT_OFFICIAL:-1}',
+    // Conversión TFLite: forzar reconstrucción sin CuDNN para compatibilidad
+    'export TFLITE_CONVERT_OFFICIAL=${TFLITE_CONVERT_OFFICIAL:-0}',
+    'export TFLITE_SKIP_CUDNN_CONVERT=${TFLITE_SKIP_CUDNN_CONVERT:-1}',
     'export TFLITE_OPTIMIZE=${TFLITE_OPTIMIZE:-0}',
     // Control de apagado global (puede sobreescribirse por ENV)
     `export AUTO_SHUTDOWN=\${AUTO_SHUTDOWN:-${AUTO_SHUTDOWN_ENV}}`,
@@ -169,16 +169,17 @@ const COMMANDS = [
         --uid=ubuntu \
         --setenv=CUDA_VISIBLE_DEVICES=0 \
         --setenv=LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}" \
-        --setenv=BATCH_SIZE=128 \
+        --setenv=BATCH_SIZE=64 \
         --setenv=MIXED_PRECISION=0 \
         --setenv=GPU_OPTIMIZED=0 \
         --setenv=GPU_WARMUP=0 \
-        --setenv=LSTM_LAYERS=2 \
-        --setenv=LSTM_UNITS=160 \
+        --setenv=LSTM_LAYERS=1 \
+        --setenv=LSTM_UNITS=128 \
         --setenv=DENSE_UNITS=256 \
-        --setenv=DROPOUT_RNN=0.28 \
+        --setenv=DROPOUT_RNN=0.3 \
         --setenv=DROPOUT_DENSE=0.4 \
-        --setenv=TFLITE_CONVERT_OFFICIAL=1 \
+        --setenv=TFLITE_CONVERT_OFFICIAL=0 \
+        --setenv=TFLITE_SKIP_CUDNN_CONVERT=1 \
         --setenv=TFLITE_OPTIMIZE=0 \
         ' + `--setenv=AUTO_SHUTDOWN=${AUTO_SHUTDOWN_ENV} \\
 ` + '        --setenv=DEBUG=0 \
