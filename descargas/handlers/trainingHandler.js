@@ -9,8 +9,10 @@ const error = console.error;
 // --- CONSTANTES DE CONFIGURACIÓN ---
 // INSTANCIA EC2 OBJETIVO FIJA
 const EC2_INSTANCE_ID = 'i-0ddf9422fa1820c42'; // ID Fijo de tu servidor EC2
-// Ruta donde se encuentra el script run_training.py
-const EC2_TRAINING_PATH = '/home/ubuntu/entrenador/';
+// Control global para apagado automático al finalizar el entrenamiento
+// Cambia a false si NO quieres que la instancia se apague automáticamente.
+const AUTO_SHUTDOWN_ENABLED = false;
+const AUTO_SHUTDOWN_ENV = AUTO_SHUTDOWN_ENABLED ? '1' : '0';
 // Comandos a ejecutar (inline) vía SSM.
 // IMPORTANTE: Ejecutamos el bloque de entrenamiento como el usuario 'ubuntu' en un login shell,
 // ya que SSM corre como root no interactivo y no carga correctamente el entorno de CUDA/venv.
@@ -51,16 +53,22 @@ const COMMANDS = [
     'export CUDA_VISIBLE_DEVICES=0',
     'export TF_FORCE_GPU_ALLOW_GROWTH=true',
     // Aumentar batch y habilitar mixed precision para aprovechar GPU
-    'export BATCH_SIZE=${BATCH_SIZE:-512}',
-    'export MIXED_PRECISION=${MIXED_PRECISION:-1}',
-    'export GPU_WARMUP=${GPU_WARMUP:-1}',
+    // Defaults orientados a fidelidad/calidad en dispositivo
+    'export BATCH_SIZE=${BATCH_SIZE:-128}',
+    'export MIXED_PRECISION=${MIXED_PRECISION:-0}',
+    'export GPU_WARMUP=${GPU_WARMUP:-0}',
     'export GPU_OPTIMIZED=${GPU_OPTIMIZED:-1}',
     'export LOG_DEVICE_PLACEMENT=${LOG_DEVICE_PLACEMENT:-0}',
+    // Conversión TFLite de alta fidelidad por defecto
+    'export TFLITE_CONVERT_OFFICIAL=${TFLITE_CONVERT_OFFICIAL:-1}',
+    'export TFLITE_OPTIMIZE=${TFLITE_OPTIMIZE:-0}',
+    // Control de apagado global (puede sobreescribirse por ENV)
+    `export AUTO_SHUTDOWN=\${AUTO_SHUTDOWN:-${AUTO_SHUTDOWN_ENV}}`,
     'export LD_LIBRARY_PATH="$VENV_SITE/nvidia/cudnn/lib:$VENV_SITE/nvidia/cublas/lib:$VENV_SITE/nvidia/cuda_runtime/lib:$VENV_SITE/nvidia/cufft/lib:$VENV_SITE/nvidia/curand/lib:$VENV_SITE/nvidia/cusolver/lib:$VENV_SITE/nvidia/cusparse/lib:$VENV_SITE/nvidia/nccl/lib:$VENV_SITE/nvidia/nvjitlink/lib:$LOCAL_SITE/nvidia/cudnn/lib:$LOCAL_SITE/nvidia/cublas/lib:$LOCAL_SITE/nvidia/cuda_runtime/lib:$LOCAL_SITE/nvidia/cufft/lib:$LOCAL_SITE/nvidia/curand/lib:$LOCAL_SITE/nvidia/cusolver/lib:$LOCAL_SITE/nvidia/cusparse/lib:$LOCAL_SITE/nvidia/nccl/lib:$LOCAL_SITE/nvidia/nvjitlink/lib:/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:/usr/local/cuda-12.2/lib64:/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}"',
     'id',
     'ls -l /dev/nvidia* || true',
     'echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"',
-    'echo "ENV: BATCH_SIZE=$BATCH_SIZE MIXED_PRECISION=$MIXED_PRECISION GPU_WARMUP=$GPU_WARMUP GPU_OPTIMIZED=$GPU_OPTIMIZED CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"',
+    'echo "ENV: BATCH_SIZE=$BATCH_SIZE MIXED_PRECISION=$MIXED_PRECISION GPU_WARMUP=$GPU_WARMUP GPU_OPTIMIZED=$GPU_OPTIMIZED CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES LSTM_UNITS=${LSTM_UNITS:-} DENSE_UNITS=${DENSE_UNITS:-} TFLITE_CONVERT_OFFICIAL=$TFLITE_CONVERT_OFFICIAL TFLITE_OPTIMIZE=$TFLITE_OPTIMIZE AUTO_SHUTDOWN=$AUTO_SHUTDOWN"',
     'echo "=== DIAG4: NCCL symlink (si falta libnccl.so) ==="',
     'for BASE in "$VENV_SITE/nvidia/nccl/lib" "$LOCAL_SITE/nvidia/nccl/lib"; do',
     '  if [ -d "$BASE" ]; then',
@@ -70,15 +78,17 @@ const COMMANDS = [
     '    fi',
     '  fi',
     'done',
-    'echo "=== DIAG4: Listado de librerías NVIDIA en venv/system ==="',
-    'echo "[venv] $VENV_SITE/nvidia:"',
-    'ls -al "$VENV_SITE/nvidia" || true',
-    'find "$VENV_SITE/nvidia" -maxdepth 2 -type f -name "*.so*" | head -n 100 || true',
-    'echo "[local] $LOCAL_SITE/nvidia:"',
-    'ls -al "$LOCAL_SITE/nvidia" || true',
-    'find "$LOCAL_SITE/nvidia" -maxdepth 2 -type f -name "*.so*" | head -n 100 || true',
-    'echo "=== DIAG4: ctypes.CDLL para libs críticas ==="',
-    '$PY_BIN - <<\'PY\'',
+    '# Bloque DIAG4 detallado solo si DEBUG=1',
+    'if [ "${DEBUG:-0}" = "1" ]; then',
+    '  echo "=== DIAG4: Listado de librerías NVIDIA en venv/system ==="',
+    '  echo "[venv] $VENV_SITE/nvidia:"',
+    '  ls -al "$VENV_SITE/nvidia" || true',
+    '  find "$VENV_SITE/nvidia" -maxdepth 2 -type f -name "*.so*" | head -n 100 || true',
+    '  echo "[local] $LOCAL_SITE/nvidia:"',
+    '  ls -al "$LOCAL_SITE/nvidia" || true',
+    '  find "$LOCAL_SITE/nvidia" -maxdepth 2 -type f -name "*.so*" | head -n 100 || true',
+    '  echo "=== DIAG4: ctypes.CDLL para libs críticas ==="',
+    '  $PY_BIN - <<\'PY\'',
     'import ctypes, sys',
     'libs=["libcuda.so.1","libnvidia-ml.so.1","libcudart.so.12","libcublas.so.12","libcudnn.so.9","libcusolver.so.11","libcusparse.so.12","libcurand.so.10","libcufft.so.11","libnvJitLink.so.12","libnccl.so","libnccl.so.2"]',
     'for L in libs:',
@@ -88,18 +98,19 @@ const COMMANDS = [
     '    except OSError as e:',
     '        print(L, "ERR:", e)',
     'PY',
-    'echo "=== DIAG4: ldd de _pywrap_tensorflow_internal.so ==="',
-    'TF_SO=$($PY_BIN - <<\'PY\'',
+    '  echo "=== DIAG4: ldd de _pywrap_tensorflow_internal.so ==="',
+    '  TF_SO=$($PY_BIN - <<\'PY\'',
     'import glob, pathlib, tensorflow as tf',
     'import tensorflow.python as tpp',
     'prefix=pathlib.Path(tpp.__file__).parent',
     'cands=sorted(glob.glob(str(prefix/"**/_pywrap_tensorflow_internal*.so"), recursive=True))',
     'print(cands[0] if cands else "")',
     'PY',
-    ')',
-    'if [ -n "$TF_SO" ] && [ -f "$TF_SO" ]; then echo "ldd $TF_SO"; ldd "$TF_SO" || true; else echo "_pywrap_tensorflow_internal.so no encontrado"; fi',
-    'echo "=== DIAG4: ldconfig -p extracto (cuda/cuDNN/cuBLAS/etc.) ==="',
-    'ldconfig -p | egrep -i "cudnn|cublas|cudart|cusolver|cusparse|curand|cufft|nccl|cuda" || true',
+    '  )',
+    '  if [ -n "$TF_SO" ] && [ -f "$TF_SO" ]; then echo "ldd $TF_SO"; ldd "$TF_SO" || true; else echo "_pywrap_tensorflow_internal.so no encontrado"; fi',
+    '  echo "=== DIAG4: ldconfig -p extracto (cuda/cuDNN/cuBLAS/etc.) ==="',
+    '  ldconfig -p | egrep -i "cudnn|cublas|cudart|cusolver|cusparse|curand|cufft|nccl|cuda" || true',
+    'fi',
     'echo "=== Verificación TF/GPU previa al entrenamiento ==="',
     '$PY_BIN - <<\'PY\'',
     'import tensorflow as tf',
@@ -116,10 +127,27 @@ const COMMANDS = [
     'print("Logical GPUs:", tf.config.list_logical_devices("GPU"))',
     'PY',
     'echo "=== Ejecutando entrenamiento ==="',
-    'timeout 2h $PY_BIN run_training.py || EXIT_CODE=$? || true',
-    'EXIT_CODE=${EXIT_CODE:-0}',
+    '# Ejecutar con timeout de 2h y capturar código de salida (incluye 124 por timeout)',
+    'EXIT_CODE=0',
+    'set +e',
+    'timeout 2h $PY_BIN run_training.py',
+    'EXIT_CODE=$?',
+    'set -e',
     'if [ -n "$VIRTUAL_ENV" ]; then deactivate || true; fi',
     'echo "=== (ubuntu) Finalizado con código: $EXIT_CODE ==="',
+    '# Apagar sólo en: éxito (0), timeout (124) o error fatal (cualquier código != 0)',
+    'if [ "${AUTO_SHUTDOWN:-1}" = "1" ]; then',
+    '  if [ "$EXIT_CODE" -eq 0 ]; then',
+    '    echo "[TRAIN] 🔌 Apagando instancia: entrenamiento exitoso (EXIT_CODE=0)";',
+    '    sudo shutdown -h now;',
+    '  elif [ "$EXIT_CODE" -eq 124 ]; then',
+    '    echo "[TRAIN] ⏱️ Timeout de 2 horas alcanzado (EXIT_CODE=124). Apagando instancia";',
+    '    sudo shutdown -h now;',
+    '  else',
+    '    echo "[TRAIN] ❌ Error fatal (EXIT_CODE=$EXIT_CODE). Apagando instancia";',
+    '    sudo shutdown -h now;',
+    '  fi',
+    'fi',
     'exit $EXIT_CODE',
     'EOSUB',
     'chmod +x /tmp/train_as_ubuntu.sh',
@@ -128,12 +156,24 @@ const COMMANDS = [
     'if command -v systemd-run >/dev/null 2>&1; then',
     '  UNIT_NAME="training-job-$(date +%s)"',
     '  echo "Ejecutando con systemd-run como servicio transitorio: $UNIT_NAME"',
+    '  # Lanzamos con entorno explícito (defaults de fidelidad/calidad)',
     '  sudo /bin/systemd-run \
         --unit="$UNIT_NAME" \
         --description="TensorFlow GPU Training" \
         --uid=ubuntu \
         --setenv=CUDA_VISIBLE_DEVICES=0 \
         --setenv=LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}" \
+        --setenv=BATCH_SIZE=128 \
+        --setenv=MIXED_PRECISION=0 \
+        --setenv=GPU_OPTIMIZED=1 \
+        --setenv=GPU_WARMUP=0 \
+        --setenv=LSTM_UNITS=64 \
+        --setenv=DENSE_UNITS=64 \
+        --setenv=TFLITE_CONVERT_OFFICIAL=1 \
+        --setenv=TFLITE_OPTIMIZE=0 \
+        ' + `--setenv=AUTO_SHUTDOWN=${AUTO_SHUTDOWN_ENV} \\
+` + '        --setenv=DEBUG=0 \
+        --property=RuntimeMaxSec=7200 \
         --property=DevicePolicy=closed \
         --property=DeviceAllow="char-major:195 rwm" \
         --property=DeviceAllow="char-major:235 rwm" \
@@ -149,11 +189,11 @@ const COMMANDS = [
     '  echo "Entrenamiento lanzado en background como unidad $UNIT_NAME"',
     '  echo "Logs en: /home/ubuntu/train.log (use: tail -f /home/ubuntu/train.log)"',
     '  echo "Puedes observar GPU con: watch -n1 nvidia-smi"',
-    '  echo "Mostrando primeras líneas del log por 90s para diagnóstico en CloudWatch..."',
+    '  echo "Mostrando primeras líneas del log por 180s para diagnóstico en CloudWatch..."',
     '  # Esperar a que el log aparezca (hasta 30s) y luego hacer tail -f durante 60s',
     '  sudo -iu ubuntu bash -lc "for i in {1..30}; do [ -f /home/ubuntu/train.log ] && break; sleep 1; done; tail -n 200 -f /home/ubuntu/train.log" &',
     '  TAIL_PID=$!',
-    '  sleep 90 || true',
+    '  sleep 180 || true',
     '  kill $TAIL_PID >/dev/null 2>&1 || true',
     '  # No esperamos a que termine; devolvemos control a SSM',
     'else',
@@ -162,8 +202,8 @@ const COMMANDS = [
     'fi',
     'EXIT_CODE=${EXIT_CODE:-0}',
     'echo "=== Finalizado con código: $EXIT_CODE ==="',
-    '# Opcional: apagar instancia',
-    '# sudo shutdown -h now'
+    '# Opcional: apagar instancia de forma automática (controlado por env AUTO_SHUTDOWN=1)',
+    '# if [ "${AUTO_SHUTDOWN:-0}" = "1" ]; then sudo shutdown -h now; fi'
 ];
 /**
  * Espera un número de milisegundos.
