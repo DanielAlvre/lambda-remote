@@ -11,7 +11,7 @@ const error = console.error;
 const EC2_INSTANCE_ID = 'i-0ddf9422fa1820c42'; // ID Fijo de tu servidor EC2
 // Control global para apagado automático al finalizar el entrenamiento
 // Cambia a false si NO quieres que la instancia se apague automáticamente.
-const AUTO_SHUTDOWN_ENABLED = false;
+const AUTO_SHUTDOWN_ENABLED = true;
 const AUTO_SHUTDOWN_ENV = AUTO_SHUTDOWN_ENABLED ? '1' : '0';
 // Comandos a ejecutar (inline) vía SSM.
 // IMPORTANTE: Ejecutamos el bloque de entrenamiento como el usuario 'ubuntu' en un login shell,
@@ -52,12 +52,17 @@ const COMMANDS = [
     '# Visibilidad y carga de librerías',
     'export CUDA_VISIBLE_DEVICES=0',
     'export TF_FORCE_GPU_ALLOW_GROWTH=true',
-    // Aumentar batch y habilitar mixed precision para aprovechar GPU
-    // Defaults orientados a fidelidad/calidad en dispositivo
+    // Defaults orientados a FIDELIDAD (masking activado y batch moderado)
     'export BATCH_SIZE=${BATCH_SIZE:-128}',
     'export MIXED_PRECISION=${MIXED_PRECISION:-0}',
     'export GPU_WARMUP=${GPU_WARMUP:-0}',
-    'export GPU_OPTIMIZED=${GPU_OPTIMIZED:-1}',
+    'export GPU_OPTIMIZED=${GPU_OPTIMIZED:-0}',
+    // Arquitectura por defecto (se puede sobreescribir por ENV)
+    'export LSTM_UNITS=${LSTM_UNITS:-256}',
+    'export LSTM_LAYERS=${LSTM_LAYERS:-2}',
+    'export DENSE_UNITS=${DENSE_UNITS:-256}',
+    'export DROPOUT_RNN=${DROPOUT_RNN:-0.3}',
+    'export DROPOUT_DENSE=${DROPOUT_DENSE:-0.4}',
     'export LOG_DEVICE_PLACEMENT=${LOG_DEVICE_PLACEMENT:-0}',
     // Conversión TFLite de alta fidelidad por defecto
     'export TFLITE_CONVERT_OFFICIAL=${TFLITE_CONVERT_OFFICIAL:-1}',
@@ -68,7 +73,7 @@ const COMMANDS = [
     'id',
     'ls -l /dev/nvidia* || true',
     'echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"',
-    'echo "ENV: BATCH_SIZE=$BATCH_SIZE MIXED_PRECISION=$MIXED_PRECISION GPU_WARMUP=$GPU_WARMUP GPU_OPTIMIZED=$GPU_OPTIMIZED CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES LSTM_UNITS=${LSTM_UNITS:-} DENSE_UNITS=${DENSE_UNITS:-} TFLITE_CONVERT_OFFICIAL=$TFLITE_CONVERT_OFFICIAL TFLITE_OPTIMIZE=$TFLITE_OPTIMIZE AUTO_SHUTDOWN=$AUTO_SHUTDOWN"',
+    'echo "ENV: BATCH_SIZE=$BATCH_SIZE MIXED_PRECISION=$MIXED_PRECISION GPU_WARMUP=$GPU_WARMUP GPU_OPTIMIZED=$GPU_OPTIMIZED CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES LSTM_LAYERS=${LSTM_LAYERS:-} LSTM_UNITS=${LSTM_UNITS:-} DENSE_UNITS=${DENSE_UNITS:-} DROPOUT_RNN=${DROPOUT_RNN:-} DROPOUT_DENSE=${DROPOUT_DENSE:-} TFLITE_CONVERT_OFFICIAL=$TFLITE_CONVERT_OFFICIAL TFLITE_OPTIMIZE=$TFLITE_OPTIMIZE AUTO_SHUTDOWN=$AUTO_SHUTDOWN"',
     'echo "=== DIAG4: NCCL symlink (si falta libnccl.so) ==="',
     'for BASE in "$VENV_SITE/nvidia/nccl/lib" "$LOCAL_SITE/nvidia/nccl/lib"; do',
     '  if [ -d "$BASE" ]; then',
@@ -156,7 +161,7 @@ const COMMANDS = [
     'if command -v systemd-run >/dev/null 2>&1; then',
     '  UNIT_NAME="training-job-$(date +%s)"',
     '  echo "Ejecutando con systemd-run como servicio transitorio: $UNIT_NAME"',
-    '  # Lanzamos con entorno explícito (defaults de fidelidad/calidad)',
+    '  # Lanzamos con entorno explícito orientado a FIDELIDAD',
     '  sudo /bin/systemd-run \
         --unit="$UNIT_NAME" \
         --description="TensorFlow GPU Training" \
@@ -165,10 +170,13 @@ const COMMANDS = [
         --setenv=LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}" \
         --setenv=BATCH_SIZE=128 \
         --setenv=MIXED_PRECISION=0 \
-        --setenv=GPU_OPTIMIZED=1 \
+        --setenv=GPU_OPTIMIZED=0 \
         --setenv=GPU_WARMUP=0 \
-        --setenv=LSTM_UNITS=64 \
-        --setenv=DENSE_UNITS=64 \
+        --setenv=LSTM_LAYERS=2 \
+        --setenv=LSTM_UNITS=256 \
+        --setenv=DENSE_UNITS=256 \
+        --setenv=DROPOUT_RNN=0.3 \
+        --setenv=DROPOUT_DENSE=0.4 \
         --setenv=TFLITE_CONVERT_OFFICIAL=1 \
         --setenv=TFLITE_OPTIMIZE=0 \
         ' + `--setenv=AUTO_SHUTDOWN=${AUTO_SHUTDOWN_ENV} \\

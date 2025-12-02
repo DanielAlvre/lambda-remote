@@ -10,6 +10,10 @@ const S3_SOURCE_BASE_URL = 's3://' + S3_BUCKET_NAME + '/csv/'; // Destino: s3://
 const S3_BACKUP_BASE_URL = 's3://' + S3_BUCKET_NAME + '/backup/'; // Origen: s3://proyecto-lsm-lengua-senas/backup/
 // INSTANCIA EC2 OBJETIVO FIJA
 const EC2_INSTANCE_ID = 'i-0ddf9422fa1820c42'; // ID Fijo de tu servidor EC2
+// Control global para apagado automático al finalizar el rollback
+// Cambia a false si NO quieres que la instancia se apague automáticamente.
+const AUTO_SHUTDOWN_ENABLED = true;
+const AUTO_SHUTDOWN_ENV = AUTO_SHUTDOWN_ENABLED ? '1' : '0';
 // ------------------------------------
 /**
  * Espera un número de milisegundos.
@@ -126,10 +130,9 @@ const startRollbackHandler = async (event) => {
 
     // 3. ENVIAR A SSM
     const rollbackCommands = commands.join(' && ');
-    const shutdownCommand = `sudo shutdown -h now`;
-
-    // El comando final ejecuta los movimientos de S3, y si son exitosos (&&), apaga la máquina
-    const finalCommand = `${rollbackCommands}`; // <-- Apagado añadido aquí
+    // El comando final ejecuta los movimientos de S3 y, si todo va bien, opcionalmente apaga la máquina
+    // Controlado por la variable de entorno AUTO_SHUTDOWN (1=apagar, 0=no). Por defecto toma AUTO_SHUTDOWN_ENV.
+    const finalCommand = `${rollbackCommands} && if [ \"\${AUTO_SHUTDOWN:-${AUTO_SHUTDOWN_ENV}}\" = \"1\" ]; then sudo shutdown -h now; fi`;
 
     const params = {
         DocumentName: 'AWS-RunShellScript',
@@ -142,11 +145,11 @@ const startRollbackHandler = async (event) => {
         }
     };
 
-    info(`[S3-ROLLBACK] Enviando SSM a ${EC2_INSTANCE_ID}. Restaurando: ${words.join(', ')} y apagando.`);
+    info(`[S3-ROLLBACK] Enviando SSM a ${EC2_INSTANCE_ID}. Restaurando: ${words.join(', ')} y aplicando apagado automático (condicional).`);
     const commandResult = await ssm.sendCommand(params).promise();
 
     return {
-        message: `Comando de Rollback (restauración de ${words.length} palabras en S3) iniciado exitosamente, con apagado automático.`,
+        message: `Comando de Rollback (restauración de ${words.length} palabras en S3) iniciado exitosamente, con apagado automático (condicional).`,
         CommandId: commandResult.Command.CommandId,
         InstanceId: EC2_INSTANCE_ID,
         WordsRestored: words
