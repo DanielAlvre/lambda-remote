@@ -11,7 +11,7 @@ const error = console.error;
 const EC2_INSTANCE_ID = 'i-0ddf9422fa1820c42'; // ID Fijo de tu servidor EC2
 // Control global para apagado automático al finalizar el entrenamiento
 // Cambia a false si NO quieres que la instancia se apague automáticamente.
-const AUTO_SHUTDOWN_ENABLED = true;
+const AUTO_SHUTDOWN_ENABLED = false;
 const AUTO_SHUTDOWN_ENV = AUTO_SHUTDOWN_ENABLED ? '1' : '0';
 // Comandos a ejecutar (inline) vía SSM.
 // IMPORTANTE: Ejecutamos el bloque de entrenamiento como el usuario 'ubuntu' en un login shell,
@@ -53,13 +53,13 @@ const COMMANDS = [
     'export CUDA_VISIBLE_DEVICES=0',
     'export TF_FORCE_GPU_ALLOW_GROWTH=true',
     // Defaults orientados a FIDELIDAD (masking activado y batch moderado)
-    'export BATCH_SIZE=${BATCH_SIZE:-128}',
+    'export BATCH_SIZE=${BATCH_SIZE:-64}',
     'export MIXED_PRECISION=${MIXED_PRECISION:-0}',
     'export GPU_WARMUP=${GPU_WARMUP:-0}',
     'export GPU_OPTIMIZED=${GPU_OPTIMIZED:-0}',
     // Arquitectura por defecto (se puede sobreescribir por ENV)
-    'export LSTM_UNITS=${LSTM_UNITS:-256}',
-    'export LSTM_LAYERS=${LSTM_LAYERS:-2}',
+    'export LSTM_UNITS=${LSTM_UNITS:-128}',
+    'export LSTM_LAYERS=${LSTM_LAYERS:-1}',
     'export DENSE_UNITS=${DENSE_UNITS:-256}',
     'export DROPOUT_RNN=${DROPOUT_RNN:-0.3}',
     'export DROPOUT_DENSE=${DROPOUT_DENSE:-0.4}',
@@ -168,12 +168,12 @@ const COMMANDS = [
         --uid=ubuntu \
         --setenv=CUDA_VISIBLE_DEVICES=0 \
         --setenv=LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}" \
-        --setenv=BATCH_SIZE=128 \
+        --setenv=BATCH_SIZE=64 \
         --setenv=MIXED_PRECISION=0 \
         --setenv=GPU_OPTIMIZED=0 \
         --setenv=GPU_WARMUP=0 \
-        --setenv=LSTM_LAYERS=2 \
-        --setenv=LSTM_UNITS=256 \
+        --setenv=LSTM_LAYERS=1 \
+        --setenv=LSTM_UNITS=128 \
         --setenv=DENSE_UNITS=256 \
         --setenv=DROPOUT_RNN=0.3 \
         --setenv=DROPOUT_DENSE=0.4 \
