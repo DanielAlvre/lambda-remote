@@ -11,7 +11,7 @@ const error = console.error;
 const EC2_INSTANCE_ID = 'i-0ddf9422fa1820c42'; // ID Fijo de tu servidor EC2
 // Control global para apagado automático al finalizar el entrenamiento
 // Cambia a false si NO quieres que la instancia se apague automáticamente.
-const AUTO_SHUTDOWN_ENABLED = false;
+const AUTO_SHUTDOWN_ENABLED = true;
 const AUTO_SHUTDOWN_ENV = AUTO_SHUTDOWN_ENABLED ? '1' : '0';
 // Comandos a ejecutar (inline) vía SSM.
 // IMPORTANTE: Ejecutamos el bloque de entrenamiento como el usuario 'ubuntu' en un login shell,
