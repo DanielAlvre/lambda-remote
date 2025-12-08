@@ -72,7 +72,7 @@ exports.handler = async (event, context) => {
             const data = await startRollbackHandler(event);
             result = createSuccessResponse(202, data);
 
-        } else if (httpMethod === 'GET' && path.includes('/start-training')) {
+        } else if (httpMethod === 'POST' && path.includes('/start-training')) {
             // 🆕 RUTA 3: Iniciar Entrenamiento (Usa trainingHandler.js)
             operacion = 'iniciar_entrenamiento_ec2';
             // Notamos que la función ahora solo necesita 'event'
