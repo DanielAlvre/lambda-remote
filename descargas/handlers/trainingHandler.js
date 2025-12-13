@@ -30,10 +30,9 @@ function getModeConfig(mode) {
             DENSE_UNITS: 256,
             DROPOUT_RNN: 0.3,
             DROPOUT_DENSE: 0.5,
-            L2_REG: 0.0, // <-- AÑADIDO: Valor por defecto de 0.0
-            EARLY_STOPPING_PATIENCE: 5, // <-- AÑADIDO: Valor por defecto
-            EARLY_STOPPING_MIN_DELTA: 0.0001, // <-- AÑADIDO: Valor por defecto
-            GENERATE_NEURAL_DIAGRAM: 1
+            L2_REG: 0.0,
+            EARLY_STOPPING_PATIENCE: 5,
+            EARLY_STOPPING_MIN_DELTA: 0.0001
         },
         // 2. Más profundo, pero con más regularización para manejar la complejidad
         2: {
@@ -43,10 +42,9 @@ function getModeConfig(mode) {
             DENSE_UNITS: 128,
             DROPOUT_RNN: 0.4,
             DROPOUT_DENSE: 0.5,
-            L2_REG: 0.0, // <-- AÑADIDO: Valor por defecto de 0.0
-            EARLY_STOPPING_PATIENCE: 5, // <-- AÑADIDO: Valor por defecto
-            EARLY_STOPPING_MIN_DELTA: 0.0001, // <-- AÑADIDO: Valor por defecto
-            GENERATE_NEURAL_DIAGRAM: 1
+            L2_REG: 0.0,
+            EARLY_STOPPING_PATIENCE: 5,
+            EARLY_STOPPING_MIN_DELTA: 0.0001
         },
         // 3. Optimizado para GPU con mayor capacidad y regularización (MODIFICADO)
         3: {
@@ -57,12 +55,10 @@ function getModeConfig(mode) {
             LSTM_UNITS: 256,
             DENSE_UNITS: 128,
             DROPOUT_RNN: 0.4,
-            DROPOUT_DENSE: 0.5,  // 👈 CAMBIO (Propuesta 1): Aumentado de 0.4 a 0.5
-            L2_REG: 0.0001,      // 👈 AÑADIDO (Propuesta 1): Fuerza de Regularización L2
-            // --- AJUSTES DE CALLBACKS (Propuesta 4) ---
-            EARLY_STOPPING_PATIENCE: 10, // 👈 CAMBIO (Propuesta 4): Subido de 5 a 10
-            EARLY_STOPPING_MIN_DELTA: 0.0001, // <-- AÑADIDO: Mantenemos el delta
-            GENERATE_NEURAL_DIAGRAM: 1
+            DROPOUT_DENSE: 0.5,
+            L2_REG: 0.0001,
+            EARLY_STOPPING_PATIENCE: 10,
+            EARLY_STOPPING_MIN_DELTA: 0.0001
         },
         // 4. Muy profundo y regularizado, con un cuello de botella menos ajustado
         4: {
@@ -72,10 +68,9 @@ function getModeConfig(mode) {
             DENSE_UNITS: 128,
             DROPOUT_RNN: 0.5,
             DROPOUT_DENSE: 0.6,
-            L2_REG: 0.0, // <-- AÑADIDO: Valor por defecto de 0.0
-            EARLY_STOPPING_PATIENCE: 5, // <-- AÑADIDO: Valor por defecto
-            EARLY_STOPPING_MIN_DELTA: 0.0001, // <-- AÑADIDO: Valor por defecto
-            GENERATE_NEURAL_DIAGRAM: 1
+            L2_REG: 0.0,
+            EARLY_STOPPING_PATIENCE: 5,
+            EARLY_STOPPING_MIN_DELTA: 0.0001
         }
     };
     return table[m] || table[1];
