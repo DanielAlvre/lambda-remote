@@ -11,16 +11,72 @@ const error = console.error;
 const EC2_INSTANCE_ID = 'i-0ddf9422fa1820c42'; // ID Fijo de tu servidor EC2
 // Control global para apagado automático al finalizar el entrenamiento
 // Cambia a false si NO quieres que la instancia se apague automáticamente.
-const AUTO_SHUTDOWN_ENABLED = true;
+const AUTO_SHUTDOWN_ENABLED = false;
 const AUTO_SHUTDOWN_ENV = AUTO_SHUTDOWN_ENABLED ? '1' : '0';
+
+// Control para limpieza de archivos CSV al finalizar entrenamiento
+// Cambia a false si NO quieres que los CSV se muevan a backup ni se eliminen locales
+const CLEANUP_CSV_ENABLED = false;
+const CLEANUP_CSV_ENV = CLEANUP_CSV_ENABLED ? '1' : '0';
 // --- NUEVA CONSTRUCCIÓN DINÁMICA DE COMANDOS SEGÚN MODO ---
 function getModeConfig(mode) {
     const m = Number(mode) || 1;
     const table = {
-        1: { BATCH_SIZE: 64, MIXED_PRECISION: 0, GPU_OPTIMIZED: 0, LSTM_LAYERS: 1, LSTM_UNITS: 128, DENSE_UNITS: 256, DROPOUT_RNN: 0.3, DROPOUT_DENSE: 0.4 },
-        2: { BATCH_SIZE: 32, MIXED_PRECISION: 0, GPU_OPTIMIZED: 0, LSTM_LAYERS: 3, LSTM_UNITS: 256, DENSE_UNITS: 128, DROPOUT_RNN: 0.3, DROPOUT_DENSE: 0.4 },
-        3: { BATCH_SIZE: 128, MIXED_PRECISION: 1, GPU_OPTIMIZED: 1, LSTM_LAYERS: 2, LSTM_UNITS: 192, DENSE_UNITS: 128, DROPOUT_RNN: 0.3, DROPOUT_DENSE: 0.4 },
-        4: { BATCH_SIZE: 16, MIXED_PRECISION: 0, GPU_OPTIMIZED: 0, LSTM_LAYERS: 4, LSTM_UNITS: 256, DENSE_UNITS: 64, DROPOUT_RNN: 0.5, DROPOUT_DENSE: 0.6 }
+        // 1. Ligeramente más capacidad y más robusto
+        1: {
+            BATCH_SIZE: 256, MIXED_PRECISION: 0, GPU_OPTIMIZED: 0,
+            LSTM_LAYERS: 1,
+            LSTM_UNITS: 160,
+            DENSE_UNITS: 256,
+            DROPOUT_RNN: 0.3,
+            DROPOUT_DENSE: 0.5,
+            L2_REG: 0.0, // <-- AÑADIDO: Valor por defecto de 0.0
+            EARLY_STOPPING_PATIENCE: 5, // <-- AÑADIDO: Valor por defecto
+            EARLY_STOPPING_MIN_DELTA: 0.0001, // <-- AÑADIDO: Valor por defecto
+            GENERATE_NEURAL_DIAGRAM: 1
+        },
+        // 2. Más profundo, pero con más regularización para manejar la complejidad
+        2: {
+            BATCH_SIZE: 256, MIXED_PRECISION: 0, GPU_OPTIMIZED: 0,
+            LSTM_LAYERS: 3,
+            LSTM_UNITS: 192,
+            DENSE_UNITS: 128,
+            DROPOUT_RNN: 0.4,
+            DROPOUT_DENSE: 0.5,
+            L2_REG: 0.0, // <-- AÑADIDO: Valor por defecto de 0.0
+            EARLY_STOPPING_PATIENCE: 5, // <-- AÑADIDO: Valor por defecto
+            EARLY_STOPPING_MIN_DELTA: 0.0001, // <-- AÑADIDO: Valor por defecto
+            GENERATE_NEURAL_DIAGRAM: 1
+        },
+        // 3. Optimizado para GPU con mayor capacidad y regularización (MODIFICADO)
+        3: {
+            BATCH_SIZE: 256,
+            MIXED_PRECISION: 1,
+            GPU_OPTIMIZED: 1,
+            LSTM_LAYERS: 2,
+            LSTM_UNITS: 256,
+            DENSE_UNITS: 128,
+            DROPOUT_RNN: 0.4,
+            DROPOUT_DENSE: 0.5,  // 👈 CAMBIO (Propuesta 1): Aumentado de 0.4 a 0.5
+            L2_REG: 0.0001,      // 👈 AÑADIDO (Propuesta 1): Fuerza de Regularización L2
+            // --- AJUSTES DE CALLBACKS (Propuesta 4) ---
+            EARLY_STOPPING_PATIENCE: 10, // 👈 CAMBIO (Propuesta 4): Subido de 5 a 10
+            EARLY_STOPPING_MIN_DELTA: 0.0001, // <-- AÑADIDO: Mantenemos el delta
+            GENERATE_NEURAL_DIAGRAM: 1
+        },
+        // 4. Muy profundo y regularizado, con un cuello de botella menos ajustado
+        4: {
+            BATCH_SIZE: 256, MIXED_PRECISION: 0, GPU_OPTIMIZED: 0,
+            LSTM_LAYERS: 4,
+            LSTM_UNITS: 256,
+            DENSE_UNITS: 128,
+            DROPOUT_RNN: 0.5,
+            DROPOUT_DENSE: 0.6,
+            L2_REG: 0.0, // <-- AÑADIDO: Valor por defecto de 0.0
+            EARLY_STOPPING_PATIENCE: 5, // <-- AÑADIDO: Valor por defecto
+            EARLY_STOPPING_MIN_DELTA: 0.0001, // <-- AÑADIDO: Valor por defecto
+            GENERATE_NEURAL_DIAGRAM: 1
+        }
     };
     return table[m] || table[1];
 }
@@ -33,8 +89,9 @@ function buildCommands(cfg) {
         'cat <<\'EOSUB\' > /tmp/train_as_ubuntu.sh',
         '#!/usr/bin/env bash',
         'set -euo pipefail',
-        '# Redirigir toda la salida a un log persistente para monitoreo por SSH',
-        'exec >> /home/ubuntu/train.log 2>&1',
+        '# Redirigir toda la salida: truncar log previo y escribir sólo esta corrida',
+        ': > /home/ubuntu/train.log',
+        'exec > /home/ubuntu/train.log 2>&1',
         'echo "[TRAIN] ===== Inicio $(date -Iseconds) ====="',
         'cd /home/ubuntu/entrenador',
         // Evitar /etc/profile (byobu puede fallar con nounset). Cargar perfiles de usuario con protección.
@@ -73,6 +130,10 @@ function buildCommands(cfg) {
         `export DENSE_UNITS=\${DENSE_UNITS:-${cfg.DENSE_UNITS}}`,
         `export DROPOUT_RNN=\${DROPOUT_RNN:-${cfg.DROPOUT_RNN}}`,
         `export DROPOUT_DENSE=\${DROPOUT_DENSE:-${cfg.DROPOUT_DENSE}}`,
+        `export L2_REG=\${L2_REG:-${cfg.L2_REG || 0.0}}`, // 👈 AÑADIDO: Exportar variable L2
+        `export EARLY_STOPPING_PATIENCE=\${EARLY_STOPPING_PATIENCE:-${cfg.EARLY_STOPPING_PATIENCE || 5}}`, // 👈 AÑADIDO: Exportar Paciencia
+        `export EARLY_STOPPING_MIN_DELTA=\${EARLY_STOPPING_MIN_DELTA:-${cfg.EARLY_STOPPING_MIN_DELTA || 0.0001}}`, // 👈 AÑADIDO: Exportar Delta
+        `export GENERATE_NEURAL_DIAGRAM=\${GENERATE_NEURAL_DIAGRAM:-${cfg.GENERATE_NEURAL_DIAGRAM}}`,
         'export LOG_DEVICE_PLACEMENT=${LOG_DEVICE_PLACEMENT:-0}',
         // Conversión TFLite: forzar reconstrucción sin CuDNN para compatibilidad
         'export TFLITE_CONVERT_OFFICIAL=${TFLITE_CONVERT_OFFICIAL:-0}',
@@ -80,11 +141,13 @@ function buildCommands(cfg) {
         'export TFLITE_OPTIMIZE=${TFLITE_OPTIMIZE:-0}',
         // Control de apagado global (puede sobreescribirse por ENV)
         `export AUTO_SHUTDOWN=\${AUTO_SHUTDOWN:-${AUTO_SHUTDOWN_ENV}}`,
+        // Control de limpieza de CSV (puede sobreescribirse por ENV)
+        `export CLEANUP_CSV=\${CLEANUP_CSV:-${CLEANUP_CSV_ENV}}`,
         'export LD_LIBRARY_PATH="$VENV_SITE/nvidia/cudnn/lib:$VENV_SITE/nvidia/cublas/lib:$VENV_SITE/nvidia/cuda_runtime/lib:$VENV_SITE/nvidia/cufft/lib:$VENV_SITE/nvidia/curand/lib:$VENV_SITE/nvidia/cusolver/lib:$VENV_SITE/nvidia/cusparse/lib:$VENV_SITE/nvidia/nccl/lib:$VENV_SITE/nvidia/nvjitlink/lib:$LOCAL_SITE/nvidia/cudnn/lib:$LOCAL_SITE/nvidia/cublas/lib:$LOCAL_SITE/nvidia/cuda_runtime/lib:$LOCAL_SITE/nvidia/cufft/lib:$LOCAL_SITE/nvidia/curand/lib:$LOCAL_SITE/nvidia/cusolver/lib:$LOCAL_SITE/nvidia/cusparse/lib:$LOCAL_SITE/nvidia/nccl/lib:$LOCAL_SITE/nvidia/nvjitlink/lib:/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:/usr/local/cuda-12.2/lib64:/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}"',
         'id',
         'ls -l /dev/nvidia* || true',
         'echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"',
-        'echo "ENV: BATCH_SIZE=$BATCH_SIZE MIXED_PRECISION=$MIXED_PRECISION GPU_WARMUP=$GPU_WARMUP GPU_OPTIMIZED=$GPU_OPTIMIZED CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES LSTM_LAYERS=${LSTM_LAYERS:-} LSTM_UNITS=${LSTM_UNITS:-} DENSE_UNITS=${DENSE_UNITS:-} DROPOUT_RNN=${DROPOUT_RNN:-} DROPOUT_DENSE=${DROPOUT_DENSE:-} TFLITE_CONVERT_OFFICIAL=$TFLITE_CONVERT_OFFICIAL TFLITE_OPTIMIZE=$TFLITE_OPTIMIZE AUTO_SHUTDOWN=$AUTO_SHUTDOWN"',
+        `echo "ENV: BATCH_SIZE=$BATCH_SIZE MIXED_PRECISION=$MIXED_PRECISION GPU_WARMUP=$GPU_WARMUP GPU_OPTIMIZED=$GPU_OPTIMIZED CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES LSTM_LAYERS=\${LSTM_LAYERS:-} LSTM_UNITS=\${LSTM_UNITS:-} DENSE_UNITS=\${DENSE_UNITS:-} DROPOUT_RNN=\${DROPOUT_RNN:-} DROPOUT_DENSE=\${DROPOUT_DENSE:-} L2_REG=\${L2_REG:-} EARLY_STOPPING_PATIENCE=\${EARLY_STOPPING_PATIENCE:-} EARLY_STOPPING_MIN_DELTA=\${EARLY_STOPPING_MIN_DELTA:-} GENERATE_NEURAL_DIAGRAM=\${GENERATE_NEURAL_DIAGRAM:-} TFLITE_CONVERT_OFFICIAL=$TFLITE_CONVERT_OFFICIAL TFLITE_OPTIMIZE=$TFLITE_OPTIMIZE AUTO_SHUTDOWN=$AUTO_SHUTDOWN CLEANUP_CSV=$CLEANUP_CSV"`,
         'echo "=== DIAG4: NCCL symlink (si falta libnccl.so) ==="',
         'for BASE in "$VENV_SITE/nvidia/nccl/lib" "$LOCAL_SITE/nvidia/nccl/lib"; do',
         '  if [ -d "$BASE" ]; then',
@@ -104,7 +167,7 @@ function buildCommands(cfg) {
         '  ls -al "$LOCAL_SITE/nvidia" || true',
         '  find "$LOCAL_SITE/nvidia" -maxdepth 2 -type f -name "*.so*" | head -n 100 || true',
         '  echo "=== DIAG4: ctypes.CDLL para libs críticas ==="',
-        '  $PY_BIN - <<\'PY\'',
+        '$PY_BIN - <<\'PY\'',
         'import ctypes, sys',
         'libs=["libcuda.so.1","libnvidia-ml.so.1","libcudart.so.12","libcublas.so.12","libcudnn.so.9","libcusolver.so.11","libcusparse.so.12","libcurand.so.10","libcufft.so.11","libnvJitLink.so.12","libnccl.so","libnccl.so.2"]',
         'for L in libs:',
@@ -188,10 +251,14 @@ function buildCommands(cfg) {
             --setenv=DENSE_UNITS=${cfg.DENSE_UNITS} \\
             --setenv=DROPOUT_RNN=${cfg.DROPOUT_RNN} \\
             --setenv=DROPOUT_DENSE=${cfg.DROPOUT_DENSE} \\
+            --setenv=L2_REG=${cfg.L2_REG || 0.0} \\
+            --setenv=EARLY_STOPPING_PATIENCE=${cfg.EARLY_STOPPING_PATIENCE || 5} \\
+            --setenv=EARLY_STOPPING_MIN_DELTA=${cfg.EARLY_STOPPING_MIN_DELTA || 0.0001} \\
             --setenv=TFLITE_CONVERT_OFFICIAL=0 \\
             --setenv=TFLITE_SKIP_CUDNN_CONVERT=1 \\
             --setenv=TFLITE_OPTIMIZE=0 \\
             --setenv=AUTO_SHUTDOWN=${AUTO_SHUTDOWN_ENV} \\
+            --setenv=CLEANUP_CSV=${CLEANUP_CSV_ENV} \\
             --setenv=DEBUG=0 \\
         --property=RuntimeMaxSec=7200 \\
         --property=DevicePolicy=closed \\
@@ -209,9 +276,9 @@ function buildCommands(cfg) {
         '  echo "Entrenamiento lanzado en background como unidad $UNIT_NAME"',
         '  echo "Logs en: /home/ubuntu/train.log (use: tail -f /home/ubuntu/train.log)"',
         '  echo "Puedes observar GPU con: watch -n1 nvidia-smi"',
-        '  echo "Mostrando primeras líneas del log por 180s para diagnóstico en CloudWatch..."',
-        '  # Esperar a que el log aparezca (hasta 30s) y luego hacer tail -f durante 60s',
-        '  sudo -iu ubuntu bash -lc "for i in {1..30}; do [ -f /home/ubuntu/train.log ] && break; sleep 1; done; tail -n 200 -f /home/ubuntu/train.log" &',
+        '  echo "Mostrando sólo nuevas líneas del log por 180s para diagnóstico en CloudWatch..."',
+        '  # Esperar a que el log aparezca (hasta 30s) y luego hacer tail -n0 -F (solo líneas nuevas)',
+        '  sudo -iu ubuntu bash -lc "for i in {1..30}; do [ -f /home/ubuntu/train.log ] && break; sleep 1; done; tail -n0 -F /home/ubuntu/train.log" &',
         '  TAIL_PID=$!',
         '  sleep 180 || true',
         '  kill $TAIL_PID >/dev/null 2>&1 || true',
