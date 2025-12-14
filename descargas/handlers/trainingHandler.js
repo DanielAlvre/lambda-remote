@@ -83,9 +83,9 @@ function getModeConfig(mode) {
             DENSE_UNITS: 64,
 
             // 2. REGULARIZACIÓN REDUCIDA
-            DROPOUT_RNN: 0.3,    // 👈 BAJAMOS REGULARIZACIÓN
-            DROPOUT_DENSE: 0.3,
-            L2_REG: 0.0001,      // 👈 L2 MUY PEQUEÑO (casi apagado)
+            DROPOUT_RNN: 0.5,    // 👈 BAJAMOS REGULARIZACIÓN
+            DROPOUT_DENSE: 0.6,
+            L2_REG: 0.0005,      // 👈 L2 MUY PEQUEÑO (casi apagado)
 
             EARLY_STOPPING_PATIENCE: 12, // Damos más paciencia para que el modelo chico mejore
             EARLY_STOPPING_MIN_DELTA: 0.0005,
@@ -106,12 +106,12 @@ function getModeConfig(mode) {
             DENSE_UNITS: 128,    // Cabezal con más detalle
 
             // 2. REGULARIZACIÓN SOSTENIBLE
-            DROPOUT_RNN: 0.4,    // Bajamos de 0.5 a 0.4 (suficiente protección)
-            DROPOUT_DENSE: 0.4,  // Bajamos de 0.6 a 0.4
+            DROPOUT_RNN: 0.6,    // Bajamos de 0.5 a 0.4 (suficiente protección)
+            DROPOUT_DENSE: 0.7,  // Bajamos de 0.6 a 0.4
 
             // 3. CASTIGO L2 MODERADO
             // 0.01 era muy agresivo, 0.001 permite aprender detalles finos sin memorizar
-            L2_REG: 0.001,
+            L2_REG: 0.01,
 
             EARLY_STOPPING_PATIENCE: 10,
             EARLY_STOPPING_MIN_DELTA: 0.0005, // Ser más exigente con la mejora
