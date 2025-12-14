@@ -22,55 +22,105 @@ const CLEANUP_CSV_ENV = CLEANUP_CSV_ENABLED ? '1' : '0';
 function getModeConfig(mode) {
     const m = Number(mode) || 1;
     const table = {
-        // 1. Ligeramente más capacidad y más robusto
         1: {
-            BATCH_SIZE: 256, MIXED_PRECISION: 0, GPU_OPTIMIZED: 0,
-            LSTM_LAYERS: 1,
-            LSTM_UNITS: 160,
-            DENSE_UNITS: 256,
-            DROPOUT_RNN: 0.3,
-            DROPOUT_DENSE: 0.5,
-            L2_REG: 0.0,
-            EARLY_STOPPING_PATIENCE: 5,
-            EARLY_STOPPING_MIN_DELTA: 0.0001
+            BATCH_SIZE: 512,
+            MIXED_PRECISION: 0,
+            GPU_OPTIMIZED: 1,
+
+            // 1. CEREBRO MÍNIMO
+            LSTM_LAYERS: 2,
+            LSTM_UNITS: 8,       // 👈 ULTRA BAJA CAPACIDAD
+            DENSE_UNITS: 32,
+
+            // 2. REGULARIZACIÓN CASI APAGADA (No necesita castigo si no tiene capacidad)
+            DROPOUT_RNN: 0.2,
+            DROPOUT_DENSE: 0.2,
+            L2_REG: 0.00001,     // 👈 L2 MUY PEQUEÑO (evita problemas numéricos)
+
+            EARLY_STOPPING_PATIENCE: 15, // Más paciencia si el modelo es muy simple
+            EARLY_STOPPING_MIN_DELTA: 0.0005,
+            EPOCHS: 700,         // Más épocas para compensar la falta de capacidad
+
+            TRAIN_SPLIT: 0.7,
+            VAL_SPLIT: 0.15,
+            TEST_SPLIT: 0.15
+        },
+        // 1. Ligeramente más capacidad y más robusto
+        2: {
+            BATCH_SIZE: 512,
+            MIXED_PRECISION: 0,
+            GPU_OPTIMIZED: 1,
+
+            // 1. REDUCIR CEREBRO: Menos capas y neuronas para evitar memorización
+            LSTM_LAYERS: 2,      // Bajamos de 4 a 2
+            LSTM_UNITS: 16,     // Bajamos de 256 a 128 (o incluso 64 si sigue fallando)
+            DENSE_UNITS: 64,     // Cabezal denso más pequeño
+
+            // 2. APAGAR NEURONAS (Lo que pediste): Muy agresivo
+            DROPOUT_RNN: 0.5,    // 50% de las neuronas LSTM se apagan en cada paso
+            DROPOUT_DENSE: 0.6,  // 60% de las neuronas finales se apagan (muy alto)
+
+            // 3. CASTIGO MATEMÁTICO (L2 Regularization)
+            // Fuerza a los pesos a ser pequeños, suavizando la decisión
+            L2_REG: 0.01,        // Valor alto (0.01 vs el 0.0001 típico)
+
+            EARLY_STOPPING_PATIENCE: 8, // Darle tiempo a converger con tanta dificultad
+            EARLY_STOPPING_MIN_DELTA: 0.001,
+            EPOCHS: 600,         // Necesitará más épocas porque aprende más lento
+
+            // División estándar
+            TRAIN_SPLIT: 0.6,
+            VAL_SPLIT: 0.2,
+            TEST_SPLIT: 0.2
         },
         // 2. Más profundo, pero con más regularización para manejar la complejidad
-        2: {
-            BATCH_SIZE: 256, MIXED_PRECISION: 0, GPU_OPTIMIZED: 0,
-            LSTM_LAYERS: 3,
-            LSTM_UNITS: 192,
-            DENSE_UNITS: 128,
-            DROPOUT_RNN: 0.4,
-            DROPOUT_DENSE: 0.5,
-            L2_REG: 0.0,
-            EARLY_STOPPING_PATIENCE: 5,
-            EARLY_STOPPING_MIN_DELTA: 0.0001
-        },
-        // 3. Optimizado para GPU con mayor capacidad y regularización (MODIFICADO)
         3: {
-            BATCH_SIZE: 256,
-            MIXED_PRECISION: 1,
+            BATCH_SIZE: 512, // Subimos el Batch para aprovechar menos parámetros
+            MIXED_PRECISION: 0,
             GPU_OPTIMIZED: 1,
             LSTM_LAYERS: 2,
-            LSTM_UNITS: 256,
-            DENSE_UNITS: 128,
-            DROPOUT_RNN: 0.4,
-            DROPOUT_DENSE: 0.5,
-            L2_REG: 0.0001,
-            EARLY_STOPPING_PATIENCE: 10,
-            EARLY_STOPPING_MIN_DELTA: 0.0001
+            LSTM_UNITS: 32,      // 👈 BAJA CAPACIDAD
+            DENSE_UNITS: 64,
+
+            // 2. REGULARIZACIÓN REDUCIDA
+            DROPOUT_RNN: 0.3,    // 👈 BAJAMOS REGULARIZACIÓN
+            DROPOUT_DENSE: 0.3,
+            L2_REG: 0.0001,      // 👈 L2 MUY PEQUEÑO (casi apagado)
+
+            EARLY_STOPPING_PATIENCE: 12, // Damos más paciencia para que el modelo chico mejore
+            EARLY_STOPPING_MIN_DELTA: 0.0005,
+            EPOCHS: 500,
+
+            TRAIN_SPLIT: 0.7,
+            VAL_SPLIT: 0.15,
+            TEST_SPLIT: 0.15
         },
-        // 4. Muy profundo y regularizado, con un cuello de botella menos ajustado
         4: {
-            BATCH_SIZE: 256, MIXED_PRECISION: 0, GPU_OPTIMIZED: 0,
-            LSTM_LAYERS: 4,
-            LSTM_UNITS: 256,
-            DENSE_UNITS: 128,
-            DROPOUT_RNN: 0.5,
-            DROPOUT_DENSE: 0.6,
-            L2_REG: 0.0,
-            EARLY_STOPPING_PATIENCE: 5,
-            EARLY_STOPPING_MIN_DELTA: 0.0001
+            BATCH_SIZE: 256,     // Bajamos de 512 para que actualice pesos más seguido
+            MIXED_PRECISION: 0,
+            GPU_OPTIMIZED: 1,
+
+            // 1. CEREBRO MEDIANO: Ni muy chico (16), ni gigante (256)
+            LSTM_LAYERS: 2,      // Mantenemos 2 capas, es perfecto para 9000 muestras
+            LSTM_UNITS: 64,      // Subimos de 16 a 64 (4 veces más capacidad)
+            DENSE_UNITS: 128,    // Cabezal con más detalle
+
+            // 2. REGULARIZACIÓN SOSTENIBLE
+            DROPOUT_RNN: 0.4,    // Bajamos de 0.5 a 0.4 (suficiente protección)
+            DROPOUT_DENSE: 0.4,  // Bajamos de 0.6 a 0.4
+
+            // 3. CASTIGO L2 MODERADO
+            // 0.01 era muy agresivo, 0.001 permite aprender detalles finos sin memorizar
+            L2_REG: 0.001,
+
+            EARLY_STOPPING_PATIENCE: 10,
+            EARLY_STOPPING_MIN_DELTA: 0.0005, // Ser más exigente con la mejora
+            EPOCHS: 500,
+
+            // División estándar
+            TRAIN_SPLIT: 0.7,    // Subimos un poco el train ya que limpiamos duplicados
+            VAL_SPLIT: 0.15,
+            TEST_SPLIT: 0.15
         }
     };
     return table[m] || table[1];
@@ -128,6 +178,11 @@ function buildCommands(cfg) {
         `export L2_REG=\${L2_REG:-${cfg.L2_REG || 0.0}}`, // 👈 AÑADIDO: Exportar variable L2
         `export EARLY_STOPPING_PATIENCE=\${EARLY_STOPPING_PATIENCE:-${cfg.EARLY_STOPPING_PATIENCE || 5}}`, // 👈 AÑADIDO: Exportar Paciencia
         `export EARLY_STOPPING_MIN_DELTA=\${EARLY_STOPPING_MIN_DELTA:-${cfg.EARLY_STOPPING_MIN_DELTA || 0.0001}}`, // 👈 AÑADIDO: Exportar Delta
+        `export EPOCHS=\${EPOCHS:-${cfg.EPOCHS || 500}}`, // 👈 AÑADIDO: Exportar épocas
+        // Configuración de división de datos (Train/Val/Test)
+        `export TRAIN_SPLIT=\${TRAIN_SPLIT:-${cfg.TRAIN_SPLIT || 0.6}}`, // 👈 NUEVO: 60% Train por defecto
+        `export VAL_SPLIT=\${VAL_SPLIT:-${cfg.VAL_SPLIT || 0.2}}`,       // 👈 NUEVO: 20% Val por defecto
+        `export TEST_SPLIT=\${TEST_SPLIT:-${cfg.TEST_SPLIT || 0.2}}`,     // 👈 NUEVO: 20% Test por defecto
         `export GENERATE_NEURAL_DIAGRAM=\${GENERATE_NEURAL_DIAGRAM:-${cfg.GENERATE_NEURAL_DIAGRAM}}`,
         'export LOG_DEVICE_PLACEMENT=${LOG_DEVICE_PLACEMENT:-0}',
         // Conversión TFLite: forzar reconstrucción sin CuDNN para compatibilidad
@@ -142,7 +197,7 @@ function buildCommands(cfg) {
         'id',
         'ls -l /dev/nvidia* || true',
         'echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"',
-        `echo "ENV: BATCH_SIZE=$BATCH_SIZE MIXED_PRECISION=$MIXED_PRECISION GPU_WARMUP=$GPU_WARMUP GPU_OPTIMIZED=$GPU_OPTIMIZED CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES LSTM_LAYERS=\${LSTM_LAYERS:-} LSTM_UNITS=\${LSTM_UNITS:-} DENSE_UNITS=\${DENSE_UNITS:-} DROPOUT_RNN=\${DROPOUT_RNN:-} DROPOUT_DENSE=\${DROPOUT_DENSE:-} L2_REG=\${L2_REG:-} EARLY_STOPPING_PATIENCE=\${EARLY_STOPPING_PATIENCE:-} EARLY_STOPPING_MIN_DELTA=\${EARLY_STOPPING_MIN_DELTA:-} GENERATE_NEURAL_DIAGRAM=\${GENERATE_NEURAL_DIAGRAM:-} TFLITE_CONVERT_OFFICIAL=$TFLITE_CONVERT_OFFICIAL TFLITE_OPTIMIZE=$TFLITE_OPTIMIZE AUTO_SHUTDOWN=$AUTO_SHUTDOWN CLEANUP_CSV=$CLEANUP_CSV"`,
+        `echo "ENV: BATCH_SIZE=$BATCH_SIZE MIXED_PRECISION=$MIXED_PRECISION GPU_WARMUP=$GPU_WARMUP GPU_OPTIMIZED=$GPU_OPTIMIZED CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES LSTM_LAYERS=\${LSTM_LAYERS:-} LSTM_UNITS=\${LSTM_UNITS:-} DENSE_UNITS=\${DENSE_UNITS:-} DROPOUT_RNN=\${DROPOUT_RNN:-} DROPOUT_DENSE=\${DROPOUT_DENSE:-} L2_REG=\${L2_REG:-} EARLY_STOPPING_PATIENCE=\${EARLY_STOPPING_PATIENCE:-} EARLY_STOPPING_MIN_DELTA=\${EARLY_STOPPING_MIN_DELTA:-} TRAIN_SPLIT=\${TRAIN_SPLIT:-} VAL_SPLIT=\${VAL_SPLIT:-} TEST_SPLIT=\${TEST_SPLIT:-} GENERATE_NEURAL_DIAGRAM=\${GENERATE_NEURAL_DIAGRAM:-} TFLITE_CONVERT_OFFICIAL=$TFLITE_CONVERT_OFFICIAL TFLITE_OPTIMIZE=$TFLITE_OPTIMIZE AUTO_SHUTDOWN=$AUTO_SHUTDOWN CLEANUP_CSV=$CLEANUP_CSV"`,
         'echo "=== DIAG4: NCCL symlink (si falta libnccl.so) ==="',
         'for BASE in "$VENV_SITE/nvidia/nccl/lib" "$LOCAL_SITE/nvidia/nccl/lib"; do',
         '  if [ -d "$BASE" ]; then',
