@@ -19,111 +19,24 @@ const AUTO_SHUTDOWN_ENV = AUTO_SHUTDOWN_ENABLED ? '1' : '0';
 const CLEANUP_CSV_ENABLED = false;
 const CLEANUP_CSV_ENV = CLEANUP_CSV_ENABLED ? '1' : '0';
 // --- NUEVA CONSTRUCCIÓN DINÁMICA DE COMANDOS SEGÚN MODO ---
-function getModeConfig(mode) {
-    const m = Number(mode) || 1;
-    const table = {
-        1: {
-            BATCH_SIZE: 512,
-            MIXED_PRECISION: 0,
-            GPU_OPTIMIZED: 1,
-
-            // 1. CEREBRO MÍNIMO
-            LSTM_LAYERS: 2,
-            LSTM_UNITS: 8,       // 👈 ULTRA BAJA CAPACIDAD
-            DENSE_UNITS: 32,
-
-            // 2. REGULARIZACIÓN CASI APAGADA (No necesita castigo si no tiene capacidad)
-            DROPOUT_RNN: 0.2,
-            DROPOUT_DENSE: 0.2,
-            L2_REG: 0.00001,     // 👈 L2 MUY PEQUEÑO (evita problemas numéricos)
-
-            EARLY_STOPPING_PATIENCE: 15, // Más paciencia si el modelo es muy simple
-            EARLY_STOPPING_MIN_DELTA: 0.0005,
-            EPOCHS: 700,         // Más épocas para compensar la falta de capacidad
-
-            TRAIN_SPLIT: 0.7,
-            VAL_SPLIT: 0.15,
-            TEST_SPLIT: 0.15
-        },
-        // 1. Ligeramente más capacidad y más robusto
-        2: {
-            BATCH_SIZE: 512,
-            MIXED_PRECISION: 0,
-            GPU_OPTIMIZED: 1,
-
-            // 1. REDUCIR CEREBRO: Menos capas y neuronas para evitar memorización
-            LSTM_LAYERS: 2,      // Bajamos de 4 a 2
-            LSTM_UNITS: 16,     // Bajamos de 256 a 128 (o incluso 64 si sigue fallando)
-            DENSE_UNITS: 64,     // Cabezal denso más pequeño
-
-            // 2. APAGAR NEURONAS (Lo que pediste): Muy agresivo
-            DROPOUT_RNN: 0.5,    // 50% de las neuronas LSTM se apagan en cada paso
-            DROPOUT_DENSE: 0.6,  // 60% de las neuronas finales se apagan (muy alto)
-
-            // 3. CASTIGO MATEMÁTICO (L2 Regularization)
-            // Fuerza a los pesos a ser pequeños, suavizando la decisión
-            L2_REG: 0.01,        // Valor alto (0.01 vs el 0.0001 típico)
-
-            EARLY_STOPPING_PATIENCE: 8, // Darle tiempo a converger con tanta dificultad
-            EARLY_STOPPING_MIN_DELTA: 0.001,
-            EPOCHS: 600,         // Necesitará más épocas porque aprende más lento
-
-            // División estándar
-            TRAIN_SPLIT: 0.6,
-            VAL_SPLIT: 0.2,
-            TEST_SPLIT: 0.2
-        },
-        // 2. Más profundo, pero con más regularización para manejar la complejidad
-        3: {
-            BATCH_SIZE: 512, // Subimos el Batch para aprovechar menos parámetros
-            MIXED_PRECISION: 0,
-            GPU_OPTIMIZED: 1,
-            LSTM_LAYERS: 2,
-            LSTM_UNITS: 32,      // 👈 BAJA CAPACIDAD
-            DENSE_UNITS: 64,
-
-            // 2. REGULARIZACIÓN REDUCIDA
-            DROPOUT_RNN: 0.5,    // 👈 BAJAMOS REGULARIZACIÓN
-            DROPOUT_DENSE: 0.6,
-            L2_REG: 0.0005,      // 👈 L2 MUY PEQUEÑO (casi apagado)
-
-            EARLY_STOPPING_PATIENCE: 12, // Damos más paciencia para que el modelo chico mejore
-            EARLY_STOPPING_MIN_DELTA: 0.0005,
-            EPOCHS: 500,
-
-            TRAIN_SPLIT: 0.7,
-            VAL_SPLIT: 0.15,
-            TEST_SPLIT: 0.15
-        },
-        4: {
-            BATCH_SIZE: 256,     // Bajamos de 512 para que actualice pesos más seguido
-            MIXED_PRECISION: 0,
-            GPU_OPTIMIZED: 1,
-
-            // 1. CEREBRO MEDIANO: Ni muy chico (16), ni gigante (256)
-            LSTM_LAYERS: 2,      // Mantenemos 2 capas, es perfecto para 9000 muestras
-            LSTM_UNITS: 64,      // Subimos de 16 a 64 (4 veces más capacidad)
-            DENSE_UNITS: 128,    // Cabezal con más detalle
-
-            // 2. REGULARIZACIÓN SOSTENIBLE
-            DROPOUT_RNN: 0.6,    // Bajamos de 0.5 a 0.4 (suficiente protección)
-            DROPOUT_DENSE: 0.7,  // Bajamos de 0.6 a 0.4
-
-            // 3. CASTIGO L2 MODERADO
-            // 0.01 era muy agresivo, 0.001 permite aprender detalles finos sin memorizar
-            L2_REG: 0.01,
-
-            EARLY_STOPPING_PATIENCE: 10,
-            EARLY_STOPPING_MIN_DELTA: 0.0005, // Ser más exigente con la mejora
-            EPOCHS: 500,
-
-            // División estándar
-            TRAIN_SPLIT: 0.7,    // Subimos un poco el train ya que limpiamos duplicados
-            VAL_SPLIT: 0.15,
-            TEST_SPLIT: 0.15
-        }
+function getDefaultConfig() {
+    return {
+        BATCH_SIZE: 512,
+        MIXED_PRECISION: 0,
+        GPU_OPTIMIZED: 1,
+        LSTM_LAYERS: 2,
+        LSTM_UNITS: 16,
+        DENSE_UNITS: 64,
+        DROPOUT_RNN: 0.5,
+        DROPOUT_DENSE: 0.6,
+        L2_REG: 0.01,
+        EARLY_STOPPING_PATIENCE: 8,
+        EARLY_STOPPING_MIN_DELTA: 0.001,
+        EPOCHS: 600,
+        TRAIN_SPLIT: 0.6,
+        VAL_SPLIT: 0.2,
+        TEST_SPLIT: 0.2
     };
-    return table[m] || table[1];
 }
 
 function buildCommands(cfg) {
@@ -411,25 +324,30 @@ async function checkAndStartInstance(instanceId) {
 async function startTrainingHandler(event, context) {
     info('--- INICIANDO ORQUESTADOR DE ENTRENAMIENTO ---');
 
-    // Leer modo desde el body (POST) o desde queryStringParameters o default=1
-    let mode = 1;
+    // Obtener configuración por defecto
+    let cfg = getDefaultConfig();
+
+    // Leer parámetros desde el body (POST)
     try {
         if (event && event.body) {
             const bodyObj = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
-            if (bodyObj && bodyObj.mode != null) {
-                mode = Number(bodyObj.mode) || 1;
+
+            // Fusionar la configuración por defecto con los parámetros recibidos
+            if (bodyObj) {
+                cfg = {
+                    ...cfg,
+                    ...bodyObj
+                };
             }
-        } else if (event && event.queryStringParameters && event.queryStringParameters.mode) {
-            mode = Number(event.queryStringParameters.mode) || 1;
         }
     } catch (e) {
-        // Si el body no es JSON válido
-        const err = new Error('Body JSON inválido. Debe enviar {"mode": 1|2|3|4}');
+        const err = new Error('Body JSON inválido. Debe enviar un objeto con los parámetros de configuración.');
         err.statusCode = 400;
         throw err;
     }
 
-    const cfg = getModeConfig(mode);
+    info(`[TRAINING] Configuración a usar:`, cfg);
+
     const COMMANDS = buildCommands(cfg);
 
     // --- PASO 1: CHEQUEAR Y ARRANCAR INSTANCIA EC2 ---
@@ -461,8 +379,7 @@ async function startTrainingHandler(event, context) {
         CommandId: commandResult.Command.CommandId,
         InstanceId: EC2_INSTANCE_ID,
         CommandsLength: COMMANDS.length,
-        mode,
-        config: cfg
+        receivedConfig: cfg
     };
 }
 
