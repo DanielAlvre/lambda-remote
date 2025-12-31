@@ -9,15 +9,6 @@ const error = console.error;
 // --- CONSTANTES DE CONFIGURACIÓN ---
 // INSTANCIA EC2 OBJETIVO FIJA
 const EC2_INSTANCE_ID = 'i-0ddf9422fa1820c42'; // ID Fijo de tu servidor EC2
-// Control global para apagado automático al finalizar el entrenamiento
-// Cambia a false si NO quieres que la instancia se apague automáticamente.
-const AUTO_SHUTDOWN_ENABLED = false;
-const AUTO_SHUTDOWN_ENV = AUTO_SHUTDOWN_ENABLED ? '1' : '0';
-
-// Control para limpieza de archivos CSV al finalizar entrenamiento
-// Cambia a false si NO quieres que los CSV se muevan a backup ni se eliminen locales
-const CLEANUP_CSV_ENABLED = false;
-const CLEANUP_CSV_ENV = CLEANUP_CSV_ENABLED ? '1' : '0';
 // --- NUEVA CONSTRUCCIÓN DINÁMICA DE COMANDOS SEGÚN MODO ---
 function getDefaultConfig() {
     return {
@@ -38,11 +29,18 @@ function getDefaultConfig() {
         TEST_SPLIT: 0.2,
         TRAINING_MODE: '1',
         RESTRICTED_LABELS: [],
-        CANTIDAD: 0
+        CANTIDAD: 0,
+        TOMATCANTIDA: false,
+        MAX_SAMPLES_PER_SIGN: 0,
+        AUTO_SHUTDOWN_ENABLED: false,
+        CLEANUP_CSV_ENABLED: false
     };
 }
 
 function buildCommands(cfg) {
+    const AUTO_SHUTDOWN_ENV = cfg.AUTO_SHUTDOWN_ENABLED ? '1' : '0';
+    const CLEANUP_CSV_ENV = cfg.CLEANUP_CSV_ENABLED ? '1' : '0';
+
     const COMMANDS = [
         '#!/bin/bash',
         'set -euo pipefail',
@@ -112,6 +110,8 @@ function buildCommands(cfg) {
         `export TRAINING_MODE=\${TRAINING_MODE:-${cfg.TRAINING_MODE}}`,
         `export RESTRICTED_LABELS=\${RESTRICTED_LABELS:-'${JSON.stringify(cfg.RESTRICTED_LABELS)}'}`,
         `export CANTIDAD=\${CANTIDAD:-${cfg.CANTIDAD || 0}}`,
+        `export TOMATCANTIDA=\${TOMATCANTIDA:-${cfg.TOMATCANTIDA ? '1' : '0'}}`,
+        `export MAX_SAMPLES_PER_SIGN=\${MAX_SAMPLES_PER_SIGN:-${cfg.MAX_SAMPLES_PER_SIGN || 0}}`,
         'export LD_LIBRARY_PATH="$VENV_SITE/nvidia/cudnn/lib:$VENV_SITE/nvidia/cublas/lib:$VENV_SITE/nvidia/cuda_runtime/lib:$VENV_SITE/nvidia/cufft/lib:$VENV_SITE/nvidia/curand/lib:$VENV_SITE/nvidia/cusolver/lib:$VENV_SITE/nvidia/cusparse/lib:$VENV_SITE/nvidia/nccl/lib:$VENV_SITE/nvidia/nvjitlink/lib:$LOCAL_SITE/nvidia/cudnn/lib:$LOCAL_SITE/nvidia/cublas/lib:$LOCAL_SITE/nvidia/cuda_runtime/lib:$LOCAL_SITE/nvidia/cufft/lib:$LOCAL_SITE/nvidia/curand/lib:$LOCAL_SITE/nvidia/cusolver/lib:$LOCAL_SITE/nvidia/cusparse/lib:$LOCAL_SITE/nvidia/nccl/lib:$LOCAL_SITE/nvidia/nvjitlink/lib:/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:/usr/local/cuda-12.2/lib64:/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}"',
         'id',
         'ls -l /dev/nvidia* || true',
@@ -231,6 +231,8 @@ function buildCommands(cfg) {
             --setenv=TRAINING_MODE=${cfg.TRAINING_MODE} \\
             --setenv=RESTRICTED_LABELS='${JSON.stringify(cfg.RESTRICTED_LABELS)}' \\
             --setenv=CANTIDAD=${cfg.CANTIDAD || 0} \\
+            --setenv=TOMATCANTIDA=${cfg.TOMATCANTIDA ? '1' : '0'} \\
+            --setenv=MAX_SAMPLES_PER_SIGN=${cfg.MAX_SAMPLES_PER_SIGN || 0} \\
             --setenv=DEBUG=0 \\
         --property=RuntimeMaxSec=7200 \\
         --property=DevicePolicy=closed \\
