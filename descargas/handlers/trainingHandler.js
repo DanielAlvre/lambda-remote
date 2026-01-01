@@ -116,7 +116,7 @@ function buildCommands(cfg) {
         `export TRAINING_MODE=\${TRAINING_MODE:-${cfg.TRAINING_MODE}}`,
         `export RESTRICTED_LABELS=\${RESTRICTED_LABELS:-'${JSON.stringify(cfg.RESTRICTED_LABELS)}'}`,
         `export CANTIDAD=\${CANTIDAD:-${cfg.CANTIDAD || 0}}`,
-        `export TOMATCANTIDA=\${TOMATCANTIDA:-${cfg.TOMATCANTIDA ? '1' : '0'}}`,
+        `export TOMA_CANTIDA=\${TOMA_CANTIDA:-${cfg.TOMA_CANTIDA ? '1' : '0'}}`,
         `export MAX_SAMPLES_PER_SIGN=\${MAX_SAMPLES_PER_SIGN:-${cfg.MAX_SAMPLES_PER_SIGN || 0}}`,
         'export LD_LIBRARY_PATH="$VENV_SITE/nvidia/cudnn/lib:$VENV_SITE/nvidia/cublas/lib:$VENV_SITE/nvidia/cuda_runtime/lib:$VENV_SITE/nvidia/cufft/lib:$VENV_SITE/nvidia/curand/lib:$VENV_SITE/nvidia/cusolver/lib:$VENV_SITE/nvidia/cusparse/lib:$VENV_SITE/nvidia/nccl/lib:$VENV_SITE/nvidia/nvjitlink/lib:$LOCAL_SITE/nvidia/cudnn/lib:$LOCAL_SITE/nvidia/cublas/lib:$LOCAL_SITE/nvidia/cuda_runtime/lib:$LOCAL_SITE/nvidia/cufft/lib:$LOCAL_SITE/nvidia/curand/lib:$LOCAL_SITE/nvidia/cusolver/lib:$LOCAL_SITE/nvidia/cusparse/lib:$LOCAL_SITE/nvidia/nccl/lib:$LOCAL_SITE/nvidia/nvjitlink/lib:/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:/usr/local/cuda-12.2/lib64:/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}"',
         'id',
@@ -240,7 +240,7 @@ function buildCommands(cfg) {
             --setenv=TRAINING_MODE=${cfg.TRAINING_MODE} \\
             --setenv=RESTRICTED_LABELS='${JSON.stringify(cfg.RESTRICTED_LABELS)}' \\
             --setenv=CANTIDAD=${cfg.CANTIDAD || 0} \\
-            --setenv=TOMATCANTIDA=${cfg.TOMATCANTIDA ? '1' : '0'} \\
+            --setenv=TOMA_CANTIDA=${cfg.TOMA_CANTIDA ? '1' : '0'} \\
             --setenv=MAX_SAMPLES_PER_SIGN=${cfg.MAX_SAMPLES_PER_SIGN || 0} \\
             --setenv=DEBUG=0 \\
         --property=RuntimeMaxSec=7200 \\
